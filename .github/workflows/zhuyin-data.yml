@@ -1,0 +1,32 @@
+name: Zhuyin data
+
+# 用小麦注音（McBopomofo，MIT）的词库源文件编译 data.txt，供生成键盘用的注音词库
+on:
+  workflow_dispatch:
+
+env:
+  MCBOPOMOFO_SHA: e65f2763d03ea381c0f40fa132df32412e8b33b9
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build McBopomofo data.txt
+        run: |
+          set -euo pipefail
+          git init -q mcb && cd mcb
+          git remote add origin https://github.com/openvanilla/McBopomofo.git
+          git fetch -q --depth 1 origin "$MCBOPOMOFO_SHA"
+          git checkout -q FETCH_HEAD
+          cd Source/Data
+          make data.txt
+          wc -l data.txt
+          head -20 data.txt
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp data.txt "$GITHUB_WORKSPACE/out/"
+          cp ../../LICENSE.txt "$GITHUB_WORKSPACE/out/McBopomofo-LICENSE.txt" || cp ../../LICENSE* "$GITHUB_WORKSPACE/out/" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcbopomofo-data
+          path: out/

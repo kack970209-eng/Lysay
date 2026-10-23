@@ -6,6 +6,7 @@ on:
     paths-ignore:
       - "**.md"
       - "接文档/**"
+      - ".github/workflows/zhuyin-data.yml"
   workflow_dispatch:
 
 permissions:
