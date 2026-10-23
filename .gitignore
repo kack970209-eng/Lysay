@@ -1,0 +1,16 @@
+# Xcode
+Lysay.xcodeproj/
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# 构建时下载的大文件
+Frameworks/
+Resources/Models/*
+!Resources/Models/.gitkeep
+Payload/
+*.ipa
+build.log
+
+.DS_Store
