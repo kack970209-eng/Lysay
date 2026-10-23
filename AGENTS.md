@@ -4,7 +4,9 @@
 
 Lysay 是一款 iOS 第三方输入法，主打 **AI 语音输入**：边说边出字，每句话说完后用本地大模型精修（加标点、纠错、去语气词），目标是接近千问语音输入法的效果。全部识别在手机上离线完成。
 
-- 支持简体 / 繁體输出切换（繁體可选通用、台灣、香港）
+- 语音输出默认繁体（台湾正体），键盘上可切换简体
+- 打字用大千排列注音键盘（ㄅㄆㄇㄈ，词库来自小麦注音 McBopomofo，MIT），另有英文、数字、符号布局
+- 粘贴板：在主 App 保存常用内容，键盘里点一下输入
 - 设计风格贴近 iOS 原生，iOS 26 使用液态玻璃（`glassEffect`），旧系统退回毛玻璃
 - 使用者自行用证书签名工具重签 IPA 安装到手机测试
 
@@ -23,12 +25,14 @@ Lysay 是一款 iOS 第三方输入法，主打 **AI 语音输入**：边说边�
 
 | 路径 | 内容 |
 | --- | --- |
-| `Lysay/` | 主 App（SwiftUI）：首页设置、语音测试页、键盘跳转引导页、`AppCoordinator` 总调度 |
-| `LysayKeyboard/` | 键盘扩展：`KeyboardViewController`、`KeyboardModel`（上屏逻辑）、`KeyboardView`（界面）、`IPCClient` |
+| `Lysay/` | 主 App（SwiftUI）：首页（开始使用教学 + 粘贴板入口 + 版本）、`ClipboardView`、键盘跳转引导页、`AppCoordinator` 总调度 |
+| `LysayKeyboard/` | 键盘扩展：`KeyboardViewController`、`KeyboardModel`（上屏逻辑）、`KeyboardView`（界面）、`IPCClient`、`ZhuyinEngine` / `ZhuyinDictionary`（注音） |
 | `Engine/` | 仅主 App：`SpeechEngine`（两段式识别）、`Recognizers`（sherpa-onnx 封装）、`AudioCapture`、`LocalServer`、`ChineseConverter`（OpenCC）、`TextPostProcessor`（去语气词）、`AppSettings` |
-| `Shared/` | 两个 target 共用：通信协议、液态玻璃样式、麦克风圆球 |
+| `Shared/` | 两个 target 共用：通信协议、液态玻璃样式、麦克风圆球、`ClipStore`（粘贴板存取） |
 | `Vendor/SherpaOnnx.swift` | sherpa-onnx 官方 Swift 封装（v1.13.8，开头加了 `import SherpaOnnxC`） |
 | `Resources/OpenCC/` | OpenCC 繁简词库（已提交） |
+| `Resources/Zhuyin/` | 注音词库 `zhuyin.txt`（由 `scripts/build_zhuyin_dict.py` 从 McBopomofo data.txt 生成，已提交） |
+| `scripts/make_icon.py` | 生成 App 图标（黑底 LY 连笔 + 声波） |
 | `Resources/Models/`、`Frameworks/` | 构建时由 CI 下载，不提交 |
 | `project.yml` | XcodeGen 工程定义 |
 | `.github/workflows/build-ipa.yml` | macOS 26 云端构建未签名 IPA，发布到 GitHub Release |
@@ -43,9 +47,10 @@ Windows 无法编译 iOS。推送到 `main` 后，GitHub Actions（`macos-26`，
 
 ## 目前状态
 
-- 版本：1.0.2（Release `build-2`）云端构建成功，未签名 IPA 已发布；尚未真机测试
+- 1.0.2 真机测试：语音功能正常
+- 第 02 份交接加入注音键盘、新图标、精简首页、粘贴板，构建与真机测试结果见最新交接
 - IPA 约 1.1GB（主要是 Qwen3 模型），Qwen3 运行时约占 1GB 内存
-- 未实现：拼音打字（字母键盘只能输入英文）、长按地球键切换输入法列表
+- 未实现：注音词频学习、长按地球键切换输入法列表
 
 ## 长期规则
 
@@ -53,6 +58,9 @@ Windows 无法编译 iOS。推送到 `main` 后，GitHub Actions（`macos-26`，
 - 语音识别只用内置离线模型，不接云端（使用者选择“纯本地离线”，来源 01）
 - 构建仓库用公开仓库（来源 01）
 - 交接文件使用简体中文；必填栏位标题沿用钩子要求的“本機時間 / ## 目標 / ## 驗證 / ## 未解”
+- 打字键盘要繁体注音（ㄅㄆㄇㄈ），不是简体/英文（来源 02）
+- 图标：黑色底，LY 与语音结合成一体，不要对话气泡之类“AI 感”的图（来源 02）
+- 主 App 首页只保留“开始使用”教学、粘贴板入口和版本信息；精修默认开启不给开关，不显示模型状态（来源 02）
 
 ## 查历史的方法
 

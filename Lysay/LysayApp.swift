@@ -25,6 +25,7 @@ struct LysayApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { coordinator.becameActive() }
+            if phase == .background { coordinator.enteredBackground() }
         }
     }
 }

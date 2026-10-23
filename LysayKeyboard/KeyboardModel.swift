@@ -11,8 +11,8 @@ final class KeyboardModel: ObservableObject {
         case loading
     }
 
-    enum Layout {
-        case voice, letters, numbers, symbols
+    enum Layout: String {
+        case voice, zhuyin, letters, numbers, symbols, clipboard
     }
 
     @Published var voiceState: VoiceState = .idle
@@ -26,6 +26,15 @@ final class KeyboardModel: ObservableObject {
     @Published var needsGlobe = true
     @Published var returnTitle = "换行"
 
+    // 注音
+    @Published var candidates: [ZhuyinEngine.Candidate] = []
+    @Published var zhuyinComposing = false
+    /// 数字/符号页返回时回到哪个打字键盘（注音或英文）
+    @Published var textLayout: Layout = .zhuyin
+
+    // 粘贴板
+    @Published var clips: [ClipItem] = []
+
     weak var controller: KeyboardViewController?
 
     private let client = IPCClient()
@@ -35,12 +44,20 @@ final class KeyboardModel: ObservableObject {
     private var markedActive = false
     private var liveCompose = true
     private var hintTimer: Timer?
+    private let zhuyin = ZhuyinEngine()
+    private var zhuyinMarked = false
+    private var layoutBeforeClipboard: Layout = .voice
 
     private static let autoStartKey = "autoStartAt"
 
     init() {
-        script = ScriptMode(rawValue: UserDefaults.standard.string(forKey: "script") ?? "") ?? .hans
+        script = ScriptMode(rawValue: UserDefaults.standard.string(forKey: "script.v2") ?? "") ?? .hant
         liveCompose = UserDefaults.standard.object(forKey: "liveCompose") as? Bool ?? true
+        if let saved = UserDefaults.standard.string(forKey: "layout"), let l = Layout(rawValue: saved),
+           l == .voice || l == .zhuyin || l == .letters {
+            layout = l
+            if l != .voice { textLayout = l }
+        }
         client.onEvent = { [weak self] e in self?.handle(e) }
         client.onDisconnect = { [weak self] in self?.connectionLost() }
     }
@@ -64,6 +81,7 @@ final class KeyboardModel: ObservableObject {
     }
 
     func keyboardWillDisappear() {
+        commitZhuyinAll()
         if voiceState == .listening {
             client.send(IPCCommand(cmd: .stop))
         }
@@ -78,6 +96,7 @@ final class KeyboardModel: ObservableObject {
     // MARK: - 语音
 
     func micTapped() {
+        commitZhuyinAll()
         haptic()
         switch voiceState {
         case .listening:
@@ -136,7 +155,7 @@ final class KeyboardModel: ObservableObject {
         case .state:
             if let s = e.script, s != script {
                 script = s
-                defaults.set(s.rawValue, forKey: "script")
+                defaults.set(s.rawValue, forKey: "script.v2")
             }
             if let c = e.liveCompose {
                 liveCompose = c
@@ -172,6 +191,9 @@ final class KeyboardModel: ObservableObject {
             if voiceState == .listening { level = e.level ?? 0 }
         case .needApp:
             jumpToApp()
+        case .clips:
+            clips = e.clips ?? []
+            ClipStore.cacheLocally(clips)
         case .error:
             showHint(e.message ?? "出错了")
             voiceState = .idle
@@ -241,7 +263,7 @@ final class KeyboardModel: ObservableObject {
     func toggleScript() {
         haptic()
         script = script.toggled
-        defaults.set(script.rawValue, forKey: "script")
+        defaults.set(script.rawValue, forKey: "script.v2")
         if client.isConnected {
             client.send(IPCCommand(cmd: .setScript, script: script))
         }
@@ -252,6 +274,7 @@ final class KeyboardModel: ObservableObject {
 
     func insert(_ s: String) {
         if voiceState == .listening || voiceState == .processing { commitMarkedText() }
+        commitZhuyinAll()
         var text = s
         if layout == .letters && (shifted || capsLock) { text = s.uppercased() }
         proxy?.insertText(text)
@@ -260,6 +283,12 @@ final class KeyboardModel: ObservableObject {
     }
 
     func deleteBackward() {
+        if zhuyin.isComposing {
+            zhuyin.backspace()
+            refreshZhuyin()
+            keyClick()
+            return
+        }
         if markedActive {
             // 说话过程中删除：取消当前识别
             cancelVoice()
@@ -270,16 +299,131 @@ final class KeyboardModel: ObservableObject {
     }
 
     func space() {
+        if zhuyin.isComposing {
+            if !zhuyin.current.isEmpty {
+                // 空格 = 一声，完成当前音节
+                zhuyin.inputTone(nil)
+                refreshZhuyin()
+            } else {
+                commitZhuyinAll()
+            }
+            keyClick()
+            return
+        }
         commitMarkedText()
         proxy?.insertText(" ")
         keyClick()
     }
 
     func returnKey() {
+        if zhuyin.isComposing {
+            commitZhuyinAll()
+            keyClick()
+            return
+        }
         commitMarkedText()
         proxy?.insertText("\n")
         keyClick()
     }
+
+    // MARK: - 注音
+
+    func zhuyinKey(_ key: String) {
+        guard let c = key.first else { return }
+        if voiceState == .listening || voiceState == .processing { commitMarkedText() }
+        if ZhuyinEngine.isTone(c) {
+            if !zhuyin.inputTone(c) && !zhuyin.isComposing {
+                proxy?.insertText(key)
+            }
+        } else {
+            zhuyin.inputSymbol(c)
+        }
+        refreshZhuyin()
+        keyClick()
+    }
+
+    func selectCandidate(_ c: ZhuyinEngine.Candidate) {
+        let text = zhuyin.select(c)
+        commitZhuyinText(text)
+        refreshZhuyin()
+        haptic()
+    }
+
+    /// 把正在组的注音整句转换后上屏
+    func commitZhuyinAll() {
+        guard zhuyin.isComposing else { return }
+        commitZhuyinText(zhuyin.commitAll())
+        refreshZhuyin()
+    }
+
+    private func commitZhuyinText(_ text: String) {
+        guard let proxy else { return }
+        if zhuyinMarked {
+            proxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
+            proxy.unmarkText()
+            zhuyinMarked = false
+        } else if !text.isEmpty {
+            proxy.insertText(text)
+        }
+    }
+
+    private func refreshZhuyin() {
+        zhuyinComposing = zhuyin.isComposing
+        candidates = zhuyin.candidates()
+        guard let proxy else { return }
+        let text = zhuyin.displayText
+        if text.isEmpty {
+            if zhuyinMarked {
+                proxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
+                proxy.unmarkText()
+                zhuyinMarked = false
+            }
+        } else {
+            proxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
+            zhuyinMarked = true
+        }
+    }
+
+    // MARK: - 粘贴板
+
+    func toggleClipboard() {
+        haptic()
+        if layout == .clipboard {
+            layout = layoutBeforeClipboard
+            return
+        }
+        commitZhuyinAll()
+        layoutBeforeClipboard = layout
+        layout = .clipboard
+        clips = ClipStore.load()
+        // 主 App 在运行的话，顺便拿最新内容
+        client.connect { [weak self] ok in
+            if ok { self?.client.send(IPCCommand(cmd: .hello)) }
+        }
+    }
+
+    func closeClipboard() {
+        layout = layoutBeforeClipboard
+        keyClick()
+    }
+
+    func insertClip(_ item: ClipItem) {
+        commitMarkedText()
+        proxy?.insertText(item.text)
+        haptic()
+    }
+
+    func pasteSystemClipboard() {
+        if let text = UIPasteboard.general.string, !text.isEmpty {
+            commitMarkedText()
+            proxy?.insertText(text)
+            haptic()
+        } else {
+            showHint("系统剪贴板里没有文字")
+        }
+    }
+
+    // MARK: - 键盘切换
 
     private var lastShiftTap = Date.distantPast
 
@@ -300,7 +444,12 @@ final class KeyboardModel: ObservableObject {
     }
 
     func switchLayout(_ l: Layout) {
+        if l != .zhuyin { commitZhuyinAll() }
         layout = l
+        if l == .zhuyin || l == .letters { textLayout = l }
+        if l == .voice || l == .zhuyin || l == .letters {
+            defaults.set(l.rawValue, forKey: "layout")
+        }
         if l != .letters {
             shifted = false
             capsLock = false

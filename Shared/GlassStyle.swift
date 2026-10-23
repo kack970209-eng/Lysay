@@ -1,9 +1,9 @@
 import SwiftUI
 
 extension Color {
-    /// Lysay 品牌色（偏蓝紫）
-    static let lysay = Color(red: 0.33, green: 0.40, blue: 1.0)
-    static let lysayPink = Color(red: 0.86, green: 0.36, blue: 0.95)
+    /// Lysay 品牌色：iOS 系统蓝
+    static let lysay = Color(red: 0.0, green: 0.48, blue: 1.0)
+    static let lysayLight = Color(red: 0.36, green: 0.66, blue: 1.0)
 }
 
 extension View {

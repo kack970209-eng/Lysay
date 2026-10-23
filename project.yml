@@ -77,6 +77,9 @@ targets:
     sources:
       - path: LysayKeyboard
       - path: Shared
+      - path: Resources/Zhuyin
+        type: folder
+        buildPhase: resources
     info:
       path: LysayKeyboard/Info.plist
       properties:

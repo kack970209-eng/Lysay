@@ -37,6 +37,7 @@ struct IPCEvent: Codable {
         case final      // 精修后的最终文字，可以上屏
         case level      // 音量，用于动画
         case needApp    // 需要跳到主 App 开启麦克风
+        case clips      // 粘贴板内容同步
         case error
     }
 
@@ -52,9 +53,11 @@ struct IPCEvent: Codable {
     var script: ScriptMode?
     var liveCompose: Bool?
     var message: String?
+    var clips: [ClipItem]?
 
     init(type: Kind, state: EngineState? = nil, text: String? = nil, id: Int? = nil,
-         level: Float? = nil, script: ScriptMode? = nil, liveCompose: Bool? = nil, message: String? = nil) {
+         level: Float? = nil, script: ScriptMode? = nil, liveCompose: Bool? = nil, message: String? = nil,
+         clips: [ClipItem]? = nil) {
         self.type = type
         self.state = state
         self.text = text
@@ -63,6 +66,7 @@ struct IPCEvent: Codable {
         self.script = script
         self.liveCompose = liveCompose
         self.message = message
+        self.clips = clips
     }
 }
 

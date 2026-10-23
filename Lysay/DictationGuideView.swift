@@ -8,7 +8,7 @@ struct DictationGuideView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color.lysay.opacity(0.35), Color.lysayPink.opacity(0.25), Color(.systemBackground)],
+            LinearGradient(colors: [Color.lysay.opacity(0.35), Color.lysayLight.opacity(0.25), Color(.systemBackground)],
                            startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
 
