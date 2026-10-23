@@ -23,9 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache models
+      - name: Restore model cache
         id: cache-models
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: Resources/Models
           key: models-v1-paraformer-bilingual-int8-${{ env.QWEN3_MODEL }}
@@ -58,6 +58,13 @@ jobs:
           cp "$src/conv_frontend.onnx" "$src/encoder.int8.onnx" "$src/decoder.int8.onnx" Resources/Models/qwen3/
           cp -R "$src/tokenizer" Resources/Models/qwen3/
           du -sh Resources/Models/*
+
+      - name: Save model cache
+        if: steps.cache-models.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: Resources/Models
+          key: models-v1-paraformer-bilingual-int8-${{ env.QWEN3_MODEL }}
 
       - name: Download sherpa-onnx framework
         run: |

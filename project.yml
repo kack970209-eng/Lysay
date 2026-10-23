@@ -95,5 +95,5 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lysay.app.keyboard
         PRODUCT_NAME: LysayKeyboard
-        APPLICATION_EXTENSION_API_ONLY: "NO"
+        APPLICATION_EXTENSION_API_ONLY: "YES"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
