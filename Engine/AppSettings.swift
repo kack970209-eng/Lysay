@@ -49,7 +49,7 @@ final class AppSettings: ObservableObject {
 
     private init() {
         // 默认繁体
-        let s = ScriptMode(rawValue: defaults.string(forKey: Self.scriptKey) ?? "") ?? .hant
+        let s = ScriptMode(rawValue: UserDefaults.standard.string(forKey: Self.scriptKey) ?? "") ?? .hant
         lockedScript = s
         script = s
     }
