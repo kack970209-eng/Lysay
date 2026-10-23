@@ -54,6 +54,7 @@ Windows 无法编译 iOS。推送到 `main` 后，GitHub Actions（`macos-26`，
 - 1.0.2 真机测试：语音功能正常
 - 1.0.6（Release `build-6`）：注音键盘、新图标、精简首页、粘贴板，使用者测试整体没问题
 - 1.0.7（Release `build-7`）：语音改为说话框 + ✕/✓ + 三色声波 + AI 整理，使用者测试 UI 很好
+- 1.0.9（Release `build-9`）：同 1.0.8 并带 Google 登录客户端 ID；尚未真机测试
 - 1.0.8（Release `build-8`）：注音进输入框、专有名词、剪贴板记录/文件夹、登录与 Pro、Cloudflare 后台；构建成功，尚未真机测试
 - Google 登录：Google Cloud 项目 Lysay（healthy-mender-469813-s3），iOS 客户端 ID 在 GitHub 变量 `GOOGLE_IOS_CLIENT_ID` 与 `server/wrangler.toml` `GOOGLE_CLIENT_IDS`；同意画面已发布
 - 公开页面：https://lysay-api.kack970209.workers.dev/ 、/privacy、/terms
