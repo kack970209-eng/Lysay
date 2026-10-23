@@ -37,7 +37,9 @@ final class KeyboardModel: ObservableObject {
     @Published var textLayout: Layout = .zhuyin
 
     // 粘贴板
-    @Published var clips: [ClipItem] = []
+    @Published var library = ClipLibrary()
+    @Published var clipTab = 0            // 0 = 剪贴板记录，1 = 收藏
+    @Published var openFolder: UUID?
 
     weak var controller: KeyboardViewController?
 
@@ -47,8 +49,10 @@ final class KeyboardModel: ObservableObject {
     private var partial = ""
     private var hintTimer: Timer?
     private let zhuyin = ZhuyinEngine()
-    private var zhuyinMarked = false
+    /// 目前以普通文字形式显示在输入框里的组字内容（注音符号 / 转换中的字）
+    private var zhuyinShown = ""
     private var layoutBeforeClipboard: Layout = .voice
+    private var pasteboardTimer: Timer?
 
     private static let autoStartKey = "autoStartAt"
 
@@ -75,6 +79,12 @@ final class KeyboardModel: ObservableObject {
     }
 
     func keyboardDidAppear() {
+        library = ClipStore.load()
+        capturePasteboard()
+        pasteboardTimer?.invalidate()
+        pasteboardTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            self?.capturePasteboard()
+        }
         // 刚从 Lysay 返回：自动开始听写
         let t = defaults.double(forKey: Self.autoStartKey)
         if t > 0, Date().timeIntervalSince1970 - t < 90 {
@@ -90,6 +100,8 @@ final class KeyboardModel: ObservableObject {
     }
 
     func keyboardWillDisappear() {
+        pasteboardTimer?.invalidate()
+        pasteboardTimer = nil
         commitZhuyinAll()
         if voiceSessionActive {
             client.send(IPCCommand(cmd: .cancel))
@@ -175,7 +187,7 @@ final class KeyboardModel: ObservableObject {
         }
         lastJump = Date()
         defaults.set(Date().timeIntervalSince1970, forKey: Self.autoStartKey)
-        controller?.openMainApp()
+        controller?.openMainApp(LysayIPC.dictateURL)
         showHint("正在打开 Lysay…如未跳转，请手动打开 Lysay 后返回")
     }
 
@@ -235,8 +247,18 @@ final class KeyboardModel: ObservableObject {
         case .needApp:
             jumpToApp()
         case .clips:
-            clips = e.clips ?? []
-            ClipStore.cacheLocally(clips)
+            if let lib = e.library {
+                library.merge(lib)
+                ClipStore.cacheLocally(library)
+            }
+        case .needLogin:
+            resetVoice()
+            showHint("AI 语音需要先登录 Lysay，正在打开…")
+            controller?.openMainApp(LysayIPC.accountURL)
+        case .quotaExceeded:
+            resetVoice()
+            showHint("免费 AI 语音时长已用完，升级 Pro 可无限使用")
+            controller?.openMainApp(LysayIPC.accountURL)
         case .error:
             showHint(e.message ?? "出错了")
             resetVoice()
@@ -331,44 +353,50 @@ final class KeyboardModel: ObservableObject {
 
     func selectCandidate(_ c: ZhuyinEngine.Candidate) {
         let text = zhuyin.select(c)
-        commitZhuyinText(text)
-        refreshZhuyin()
+        let rest = zhuyin.displayText
+        showComposition(text + rest)
+        zhuyinShown = rest          // 选中的字已确定，只有后面的部分还在组字
+        refreshCandidates()
         haptic()
     }
 
-    /// 把正在组的注音整句转换后上屏
+    /// 把正在组的注音整句转换后确定
     func commitZhuyinAll() {
         guard zhuyin.isComposing else { return }
-        commitZhuyinText(zhuyin.commitAll())
-        refreshZhuyin()
-    }
-
-    private func commitZhuyinText(_ text: String) {
-        guard let proxy else { return }
-        if zhuyinMarked {
-            proxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
-            proxy.unmarkText()
-            zhuyinMarked = false
-        } else if !text.isEmpty {
-            proxy.insertText(text)
-        }
+        showComposition(zhuyin.commitAll())
+        zhuyinShown = ""
+        refreshCandidates()
     }
 
     private func refreshZhuyin() {
+        showComposition(zhuyin.displayText)
+        refreshCandidates()
+    }
+
+    private func refreshCandidates() {
         zhuyinComposing = zhuyin.isComposing
         candidates = zhuyin.candidates()
+    }
+
+    /// 组字直接写进输入框（和 iOS 原生注音一样能在输入框里看到 ㄨㄛ），
+    /// 每次只删掉、补上有变化的部分。
+    private func showComposition(_ new: String) {
         guard let proxy else { return }
-        let text = zhuyin.displayText
-        if text.isEmpty {
-            if zhuyinMarked {
-                proxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
-                proxy.unmarkText()
-                zhuyinMarked = false
-            }
-        } else {
-            proxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
-            zhuyinMarked = true
+        var old = zhuyinShown
+        if !old.isEmpty, let before = proxy.documentContextBeforeInput, !before.hasSuffix(old) {
+            // 光标移动或文字被宿主改动了：之前显示的内容就当作已确定，不再去删
+            old = ""
         }
+        let oldChars = Array(old), newChars = Array(new)
+        var common = 0
+        while common < oldChars.count && common < newChars.count && oldChars[common] == newChars[common] {
+            common += 1
+        }
+        for _ in common..<oldChars.count { proxy.deleteBackward() }
+        if common < newChars.count {
+            proxy.insertText(String(newChars[common...]))
+        }
+        zhuyinShown = new
     }
 
     // MARK: - 粘贴板
@@ -382,7 +410,9 @@ final class KeyboardModel: ObservableObject {
         commitZhuyinAll()
         layoutBeforeClipboard = layout
         layout = .clipboard
-        clips = ClipStore.load()
+        openFolder = nil
+        library = ClipStore.load()
+        capturePasteboard()
         // 主 App 在运行的话，顺便拿最新内容
         client.connect { [weak self] ok in
             if ok { self?.client.send(IPCCommand(cmd: .hello)) }
@@ -394,17 +424,46 @@ final class KeyboardModel: ObservableObject {
         keyClick()
     }
 
-    func insertClip(_ item: ClipItem) {
-        proxy?.insertText(item.text)
+    func insertText(_ text: String) {
+        commitZhuyinAll()
+        proxy?.insertText(text)
         haptic()
     }
 
     func pasteSystemClipboard() {
         if let text = UIPasteboard.general.string, !text.isEmpty {
-            proxy?.insertText(text)
-            haptic()
+            insertText(text)
         } else {
             showHint("系统剪贴板里没有文字")
+        }
+    }
+
+    /// 发现系统剪贴板有新内容就记进剪贴板记录（键盘开着的时候每 2 秒看一次）
+    private func capturePasteboard() {
+        guard controller?.hasFullAccess == true else { return }
+        let pb = UIPasteboard.general
+        let count = pb.changeCount
+        guard count != defaults.integer(forKey: "pasteboardChangeCount") else { return }
+        defaults.set(count, forKey: "pasteboardChangeCount")
+        guard pb.hasStrings, let text = pb.string, !text.isEmpty else { return }
+        library.recordCopy(text)
+        library = ClipStore.save(library)
+        if client.isConnected {
+            client.send(IPCCommand(cmd: .syncClips, library: library))
+        } else {
+            client.connect { [weak self] ok in
+                guard let self, ok else { return }
+                self.client.send(IPCCommand(cmd: .syncClips, library: self.library))
+            }
+        }
+    }
+
+    func deleteHistory(_ item: ClipHistoryItem) {
+        if let i = library.history.firstIndex(where: { $0.id == item.id }) {
+            library.history[i].deleted = true
+            library.history[i].updatedAt = Date()
+            library = ClipStore.save(library)
+            if client.isConnected { client.send(IPCCommand(cmd: .syncClips, library: library)) }
         }
     }
 

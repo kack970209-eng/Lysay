@@ -440,34 +440,40 @@ private struct ClipboardPanel: View {
 
     var body: some View {
         VStack(spacing: KeyboardMetrics.spacing) {
-            ScrollView {
-                LazyVStack(spacing: 6) {
-                    Button(action: model.pasteSystemClipboard) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "doc.on.clipboard")
-                                .foregroundStyle(Color.lysay)
-                            Text("粘贴系统剪贴板的内容")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                        }
-                        .font(.system(size: 15, weight: .medium))
-                        .padding(.horizontal, 14)
-                        .frame(height: 42)
-                        .lysayGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous), interactive: true)
+            HStack(spacing: 8) {
+                if model.clipTab == 1, let folderId = model.openFolder {
+                    Button {
+                        model.openFolder = nil
+                    } label: {
+                        Label(folderName(folderId), systemImage: "chevron.left")
+                            .font(.system(size: 14, weight: .semibold))
+                            .lineLimit(1)
                     }
                     .buttonStyle(.plain)
-
-                    if model.clips.isEmpty {
-                        Text("还没有保存的内容\n在 Lysay App 里点“粘贴板”添加常用文字")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.top, 24)
-                    } else {
-                        ForEach(model.clips) { item in
-                            ClipRow(item: item) { model.insertClip(item) }
-                        }
+                    Spacer()
+                } else {
+                    Picker("", selection: $model.clipTab) {
+                        Text("剪贴板").tag(0)
+                        Text("收藏").tag(1)
                     }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 220)
+                    Spacer()
+                    Button(action: model.pasteSystemClipboard) {
+                        Label("粘贴", systemImage: "doc.on.clipboard")
+                            .font(.system(size: 14, weight: .medium))
+                            .padding(.horizontal, 12)
+                            .frame(height: 32)
+                            .lysayGlass(in: Capsule(), interactive: true)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(height: 34)
+
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    content
                 }
                 .padding(.horizontal, 2)
                 .padding(.top, 2)
@@ -487,16 +493,69 @@ private struct ClipboardPanel: View {
             .frame(height: KeyboardMetrics.rowHeight)
         }
     }
+
+    @ViewBuilder
+    private var content: some View {
+        if model.clipTab == 0 {
+            let history = model.library.visibleHistory
+            if history.isEmpty {
+                emptyText("还没有剪贴板记录\n在任何 App 复制文字后，回到键盘就会出现在这里")
+            } else {
+                ForEach(history) { item in
+                    ClipRow(text: item.text) { model.insertText(item.text) }
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                model.deleteHistory(item)
+                            } label: {
+                                Label("删除", systemImage: "trash")
+                            }
+                        }
+                }
+            }
+        } else if let folderId = model.openFolder {
+            let items = model.library.items(in: folderId)
+            if items.isEmpty {
+                emptyText("这个文件夹是空的\n在 Lysay App 的“粘贴板”里添加文字")
+            } else {
+                ForEach(items) { item in
+                    ClipRow(text: item.text) { model.insertText(item.text) }
+                }
+            }
+        } else {
+            let folders = model.library.visibleFolders
+            if folders.isEmpty {
+                emptyText("还没有收藏文件夹\n在 Lysay App 的“粘贴板”里新建文件夹并写入文字")
+            } else {
+                ForEach(folders) { f in
+                    FolderRow(name: f.name, count: model.library.items(in: f.id).count) {
+                        model.openFolder = f.id
+                    }
+                }
+            }
+        }
+    }
+
+    private func folderName(_ id: UUID) -> String {
+        model.library.visibleFolders.first { $0.id == id }?.name ?? "文件夹"
+    }
+
+    private func emptyText(_ s: String) -> some View {
+        Text(s)
+            .font(.system(size: 13))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding(.top, 20)
+    }
 }
 
 private struct ClipRow: View {
-    let item: ClipItem
+    let text: String
     let action: () -> Void
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Button(action: action) {
-            Text(item.text)
+            Text(text)
                 .font(.system(size: 15))
                 .foregroundStyle(.primary)
                 .lineLimit(2)
@@ -508,6 +567,32 @@ private struct ClipRow: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(KeyPalette.fill(.character, scheme: scheme, pressed: false))
                 )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct FolderRow: View {
+    let name: String
+    let count: Int
+    let action: () -> Void
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: "folder.fill").foregroundStyle(Color.lysay)
+                Text(name).font(.system(size: 15, weight: .medium)).foregroundStyle(.primary)
+                Spacer()
+                Text("\(count)").font(.system(size: 13)).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(KeyPalette.fill(.character, scheme: scheme, pressed: false))
+            )
         }
         .buttonStyle(.plain)
     }

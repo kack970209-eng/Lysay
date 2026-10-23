@@ -106,6 +106,7 @@ jobs:
             SYMROOT="$PWD/build" \
             MARKETING_VERSION="1.0.${{ github.run_number }}" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            LYSAY_GOOGLE_CLIENT_ID="${{ vars.GOOGLE_IOS_CLIENT_ID }}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -127,6 +128,12 @@ jobs:
           ls -la "$APP" "$APP/PlugIns" "$APP/Frameworks"
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
+          # 临时签名并写入 Sign in with Apple 权限，签名工具重签时可沿用
+          A="Payload/Lysay.app"
+          for f in "$A"/Frameworks/*.framework; do codesign --force --sign - "$f"; done
+          codesign --force --sign - "$A/PlugIns/LysayKeyboard.appex"
+          codesign --force --sign - --entitlements Lysay/Lysay.entitlements "$A"
+          codesign -d --entitlements - "$A" || true
           IPA="Lysay-1.0.${{ github.run_number }}-unsigned.ipa"
           zip -qry "$IPA" Payload
           ls -lh "$IPA"

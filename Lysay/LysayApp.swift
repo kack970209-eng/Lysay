@@ -5,6 +5,7 @@ struct LysayApp: App {
     @StateObject private var coordinator = AppCoordinator.shared
     @StateObject private var engine = SpeechEngine.shared
     @StateObject private var settings = AppSettings.shared
+    @StateObject private var account = AccountManager.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -13,6 +14,7 @@ struct LysayApp: App {
                 .environmentObject(coordinator)
                 .environmentObject(engine)
                 .environmentObject(settings)
+                .environmentObject(account)
                 .tint(Color.lysay)
                 .onOpenURL { coordinator.handle(url: $0) }
                 .fullScreenCover(isPresented: $coordinator.showDictationGuide) {
@@ -20,6 +22,11 @@ struct LysayApp: App {
                         .environmentObject(coordinator)
                         .environmentObject(engine)
                         .environmentObject(settings)
+                }
+                .sheet(isPresented: $coordinator.showAccount) {
+                    ProUpgradeView()
+                        .environmentObject(account)
+                        .environmentObject(coordinator)
                 }
                 .onAppear { coordinator.boot() }
         }

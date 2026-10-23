@@ -9,6 +9,7 @@ enum LysayIPC {
     static let port: UInt16 = 47821
     static let urlScheme = "lysay"
     static let dictateURL = URL(string: "lysay://dictate")!
+    static let accountURL = URL(string: "lysay://account")!
 }
 
 enum ScriptMode: String, Codable, CaseIterable {
@@ -24,9 +25,17 @@ struct IPCCommand: Codable {
     enum Kind: String, Codable {
         case hello, start, stop, cancel, setScript
         case finish     // 讲完了，开始 AI 整理
+        case syncClips  // 键盘把粘贴板资料（含剪贴板记录）交给 App
     }
     var cmd: Kind
     var script: ScriptMode?
+    var library: ClipLibrary?
+
+    init(cmd: Kind, script: ScriptMode? = nil, library: ClipLibrary? = nil) {
+        self.cmd = cmd
+        self.script = script
+        self.library = library
+    }
 }
 
 /// 主 App → 键盘
@@ -41,6 +50,8 @@ struct IPCEvent: Codable {
         case level      // 音量，用于动画
         case needApp    // 需要跳到主 App 开启麦克风
         case clips      // 粘贴板内容同步
+        case needLogin  // AI 语音需要先登录
+        case quotaExceeded // 免费额度用完，需要 Pro
         case error
     }
 
@@ -56,11 +67,11 @@ struct IPCEvent: Codable {
     var script: ScriptMode?
     var liveCompose: Bool?
     var message: String?
-    var clips: [ClipItem]?
+    var library: ClipLibrary?
 
     init(type: Kind, state: EngineState? = nil, text: String? = nil, id: Int? = nil,
          level: Float? = nil, script: ScriptMode? = nil, liveCompose: Bool? = nil, message: String? = nil,
-         clips: [ClipItem]? = nil) {
+         library: ClipLibrary? = nil) {
         self.type = type
         self.state = state
         self.text = text
@@ -69,7 +80,7 @@ struct IPCEvent: Codable {
         self.script = script
         self.liveCompose = liveCompose
         self.message = message
-        self.clips = clips
+        self.library = library
     }
 }
 

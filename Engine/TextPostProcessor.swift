@@ -39,9 +39,26 @@ enum TextPostProcessor {
         return ensureEnding(text, isLast: true)
     }
 
-    /// 只做简繁转换
+    /// 只做简繁转换，并统一专有名词的写法
     static func convertScript(_ text: String, settings: AppSettings.Snapshot) -> String {
-        ChineseConverter.shared.convert(text, script: settings.script, variant: settings.variant)
+        let converted = ChineseConverter.shared.convert(text, script: settings.script, variant: settings.variant)
+        return normalizeHotwords(converted, hotwords: settings.hotwords)
+    }
+
+    /// 英文专有名词不论识别成 LYSAY、lysay、Ly say，都统一成设定的写法
+    static func normalizeHotwords(_ text: String, hotwords: [String]) -> String {
+        var out = text
+        for word in hotwords {
+            let letters = word.filter { !$0.isWhitespace }
+            guard letters.count >= 2, letters.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { continue }
+            let pattern = "(?i)(?<![A-Za-z0-9])" + letters.map { NSRegularExpression.escapedPattern(for: String($0)) }
+                .joined(separator: "[\\s\\-]?") + "(?![A-Za-z0-9])"
+            guard let re = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(out.startIndex..<out.endIndex, in: out)
+            out = re.stringByReplacingMatches(in: out, range: range,
+                                              withTemplate: NSRegularExpression.escapedTemplate(for: word))
+        }
+        return out
     }
 
     static func process(_ raw: String, settings: AppSettings.Snapshot) -> String {
@@ -49,8 +66,7 @@ enum TextPostProcessor {
         if settings.removeFillers {
             text = removeFillers(text)
         }
-        text = ChineseConverter.shared.convert(text, script: settings.script, variant: settings.variant)
-        return text
+        return convertScript(text, settings: settings)
     }
 
     /// 流式识别没有标点，给没有精修的句子补一个结尾标点。

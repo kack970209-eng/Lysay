@@ -6,7 +6,9 @@ Lysay 是一款 iOS 第三方输入法，主打 **AI 语音输入**：边说边�
 
 - 语音输出默认繁体（台湾正体），键盘上可切换简体
 - 打字用大千排列注音键盘（ㄅㄆㄇㄈ，词库来自小麦注音 McBopomofo，MIT），另有英文、数字、符号布局
-- 粘贴板：在主 App 保存常用内容，键盘里点一下输入
+- 粘贴板：剪贴板记录（键盘自动记下复制过的文字）+ 收藏文件夹（App 内建立并写入文字），键盘里点一下输入
+- 账号：Apple / Google 登录；AI 语音为 Pro 功能，每个账号免费 4 小时，Pro 月付 150 / 年付 550（目前由管理后台手动开通）
+- 后端：Cloudflare Worker `lysay-api`（https://lysay-api.kack970209.workers.dev ，D1 数据库 `lysay`），管理后台 `/admin`
 - 设计风格贴近 iOS 原生，iOS 26 使用液态玻璃（`glassEffect`），旧系统退回毛玻璃
 - 使用者自行用证书签名工具重签 IPA 安装到手机测试
 
@@ -35,6 +37,7 @@ Lysay 是一款 iOS 第三方输入法，主打 **AI 语音输入**：边说边�
 | `Resources/Zhuyin/` | 注音词库 `zhuyin.txt`（由 `scripts/build_zhuyin_dict.py` 从 McBopomofo data.txt 生成，已提交） |
 | `scripts/make_icon.py` | 生成 App 图标（黑底 LY 连笔 + 声波） |
 | `Resources/Models/`、`Frameworks/` | 构建时由 CI 下载，不提交 |
+| `server/` | Cloudflare Worker：`src/index.ts`（API）、`src/admin.ts`（管理后台页面）、`schema.sql`、`wrangler.toml`；部署用 `pwsh -Command "npx wrangler deploy"`（本机已登录） |
 | `project.yml` | XcodeGen 工程定义 |
 | `.github/workflows/build-ipa.yml` | macOS 26 云端构建未签名 IPA，发布到 GitHub Release |
 
@@ -50,7 +53,9 @@ Windows 无法编译 iOS。推送到 `main` 后，GitHub Actions（`macos-26`，
 
 - 1.0.2 真机测试：语音功能正常
 - 1.0.6（Release `build-6`）：注音键盘、新图标、精简首页、粘贴板，使用者测试整体没问题
-- 1.0.7（Release `build-7`）：语音改为说话框 + ✕/✓ + 三色声波 + AI 整理，构建成功，尚未真机测试
+- 1.0.7（Release `build-7`）：语音改为说话框 + ✕/✓ + 三色声波 + AI 整理，使用者测试 UI 很好
+- 第 04 份交接：注音进输入框、专有名词、剪贴板记录/文件夹、登录与 Pro、Cloudflare 后台；构建结果见最新交接
+- Google 登录待使用者提供 iOS OAuth 客户端 ID（GitHub 仓库变量 `GOOGLE_IOS_CLIENT_ID` + wrangler.toml `GOOGLE_CLIENT_IDS`）
 - IPA 约 1.7GB（Qwen3-ASR + Qwen3-0.6B），已接近 GitHub Release 单文件 2GB 上限
 - 未实现：注音词频学习、长按地球键切换输入法列表
 
@@ -62,7 +67,11 @@ Windows 无法编译 iOS。推送到 `main` 后，GitHub Actions（`macos-26`，
 - 交接文件使用简体中文；必填栏位标题沿用钩子要求的“本機時間 / ## 目標 / ## 驗證 / ## 未解”
 - 打字键盘要繁体注音（ㄅㄆㄇㄈ），不是简体/英文（来源 02）
 - 图标：黑色底，LY 与语音结合成一体，不要对话气泡之类“AI 感”的图（来源 02）
-- 主 App 首页只保留“开始使用”教学、粘贴板入口和版本信息；精修默认开启不给开关，不显示模型状态（来源 02）
+- 主 App 首页只保留账号、“开始使用”教学、粘贴板/专有名词入口和版本信息；精修默认开启不给开关，不显示模型状态（来源 02、04）
+- 注音组字要显示在输入框里，不要显示在键盘顶部（来源 04）
+- 收费只针对 Pro AI 语音（4 小时免费额度），注音、粘贴板等其他功能免费；模型都在本地，不接云端模型（来源 04）
+- 后台要能看注册用户、管理账号、看每个用户的套餐（没有显示“无”）、帮用户升级（来源 04）
+- 管理后台密码只存本机 `server/.admin-password.txt`，不提交、不写进交接
 - 语音面板只放一个麦克风按钮，不放标点（来源 03）
 - 语音不直接上屏：先显示在说话框（✕ 取消 / ✓ 完成），按 ✓ 后 AI 整理再输出（来源 03）
 - 说话时显示三色线条交缠、随声音波动的效果（来源 03）

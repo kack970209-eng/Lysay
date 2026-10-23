@@ -1,0 +1,20 @@
+name = "lysay-api"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Google OAuth 客户端 ID（iOS 类型），逗号分隔；在 Google Cloud 建好后填进来
+GOOGLE_CLIENT_IDS = ""
+# Apple 登录的 audience = App 的 Bundle ID，逗号分隔
+APPLE_AUDIENCES = "com.lysay.app"
+# 免费 AI 语音额度：4 小时
+FREE_AI_SECONDS = "14400"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lysay"
+database_id = "cb271179-cd75-4c12-8c48-043ceaaa9084"
+
+# 机密（用 wrangler secret put 设置，不写在这里）：
+#   SESSION_SECRET  会话令牌签名密钥
+#   ADMIN_PASSWORD  管理后台密码

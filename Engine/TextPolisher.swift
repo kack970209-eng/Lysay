@@ -10,7 +10,8 @@ final class TextPolisher {
     2. 删除结巴和重复的字词，例如“我我我想”整理成“我想”。
     3. 说话中途改口时，只保留改口后的内容。
     4. 修正明显的同音错别字，补全标点，合理分句。
-    5. 不要添加原文没有的信息，不要回答或评论内容，不要改变原意和人称。
+    5. 英文单词、品牌名、人名保持英文原样，不要翻译成中文，也不要把中文改写成英文。
+    6. 不要添加原文没有的信息，不要回答或评论内容，不要改变原意和人称。
     只输出整理后的文字，不要任何解释。
     """
 
@@ -63,13 +64,17 @@ final class TextPolisher {
 
     /// 整理一段文字；onPartial 会随生成进度不断回调（已生成的全部文字）。
     /// 失败或结果异常时返回 nil，由调用方退回规则清理。
-    func polish(_ text: String, onPartial: (String) -> Void) -> String? {
+    func polish(_ text: String, hotwords: [String] = [], onPartial: (String) -> Void) -> String? {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty, input.count <= 1200 else { return nil }
 
         llama_memory_clear(llama_get_memory(ctx), true)
 
-        let prompt = "<|im_start|>system\n\(Self.systemPrompt)<|im_end|>\n"
+        var system = Self.systemPrompt
+        if !hotwords.isEmpty {
+            system += "\n以下专有名词必须原样保留：" + hotwords.joined(separator: "、")
+        }
+        let prompt = "<|im_start|>system\n\(system)<|im_end|>\n"
             + "<|im_start|>user\n\(input)<|im_end|>\n"
             + "<|im_start|>assistant\n<think>\n\n</think>\n\n"
         var tokens = tokenize(prompt)

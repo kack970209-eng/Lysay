@@ -66,10 +66,14 @@ targets:
             CFBundleURLSchemes:
               - lysay
         ITSAppUsesNonExemptEncryption: false
+        LysayAPIBase: https://lysay-api.kack970209.workers.dev
+        LysayGoogleClientID: $(LYSAY_GOOGLE_CLIENT_ID)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lysay.app
         PRODUCT_NAME: Lysay
+        CODE_SIGN_ENTITLEMENTS: Lysay/Lysay.entitlements
+        LYSAY_GOOGLE_CLIENT_ID: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: ""
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"

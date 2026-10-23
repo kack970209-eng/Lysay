@@ -19,6 +19,7 @@ final class AppSettings: ObservableObject {
         var removeFillers: Bool
         var liveCompose: Bool
         var keepAliveMinutes: Int
+        var hotwords: [String]
     }
 
     let variant: TraditionalVariant = .taiwan
@@ -30,6 +31,15 @@ final class AppSettings: ObservableObject {
     private let defaults = UserDefaults.standard
     private let lock = NSLock()
     private var lockedScript: ScriptMode
+    private var lockedHotwords: [String]
+
+    /// 专有名词：让语音识别和 AI 整理保持原样（例如 Lysay）
+    @Published var hotwords: [String] {
+        didSet {
+            defaults.set(hotwords, forKey: Self.hotwordsKey)
+            lock.lock(); lockedHotwords = hotwords; lock.unlock()
+        }
+    }
 
     @Published var script: ScriptMode {
         didSet {
@@ -42,15 +52,19 @@ final class AppSettings: ObservableObject {
         lock.lock(); defer { lock.unlock() }
         return Snapshot(script: lockedScript, variant: variant, refineEnabled: refineEnabled,
                         removeFillers: removeFillers, liveCompose: liveCompose,
-                        keepAliveMinutes: keepAliveMinutes)
+                        keepAliveMinutes: keepAliveMinutes, hotwords: lockedHotwords)
     }
 
     private static let scriptKey = "script.v2"
+    private static let hotwordsKey = "hotwords"
 
     private init() {
         // 默认繁体
         let s = ScriptMode(rawValue: UserDefaults.standard.string(forKey: Self.scriptKey) ?? "") ?? .hant
         lockedScript = s
         script = s
+        let words = UserDefaults.standard.stringArray(forKey: Self.hotwordsKey) ?? ["Lysay"]
+        lockedHotwords = words
+        hotwords = words
     }
 }

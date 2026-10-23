@@ -122,9 +122,13 @@ final class RefineRecognizer {
         SherpaOnnxDestroyOfflineRecognizer(recognizer)
     }
 
-    func transcribe(_ samples: [Float]) -> String {
+    /// hotwords：逗号分隔的专有名词，帮助模型认出 “Lysay” 这类词
+    func transcribe(_ samples: [Float], hotwords: String = "") -> String {
         guard samples.count > 4800, let stream = SherpaOnnxCreateOfflineStream(recognizer) else { return "" }
         defer { SherpaOnnxDestroyOfflineStream(stream) }
+        if !hotwords.isEmpty {
+            SherpaOnnxOfflineStreamSetOption(stream, "hotwords", hotwords)
+        }
         samples.withUnsafeBufferPointer { buf in
             SherpaOnnxAcceptWaveformOffline(stream, 16000, buf.baseAddress, Int32(buf.count))
         }

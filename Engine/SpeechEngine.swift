@@ -39,6 +39,11 @@ final class SpeechEngine: ObservableObject {
     private var sessionTexts: [Int: String] = [:]   // 精修后的原文（未转繁体）
     private var pendingIds = Set<Int>()
     private var finishing = false
+    // 说话中用 Qwen3-ASR 每秒重新识别当前这句，显示比流式模型稳定（中英文不会来回跳）
+    private var segmentSerial = 0
+    private var liveBusy = false
+    private var liveText = ""
+    private var lastLiveAt = Date.distantPast
 
     // 只在 refineQueue 访问
     private var refiner: RefineRecognizer?
@@ -124,6 +129,8 @@ final class SpeechEngine: ObservableObject {
             s.reset()
             self.listening = true
             self.lastPartial = ""
+            self.liveText = ""
+            self.segmentSerial += 1
             self.lastSpeechAt = Date()
             // 带上按下按钮前 0.5 秒的音频，避免吞掉第一个字
             self.segmentAudio = self.preroll
@@ -161,6 +168,8 @@ final class SpeechEngine: ObservableObject {
             self.streaming?.reset()
             self.segmentAudio = []
             self.lastPartial = ""
+            self.liveText = ""
+            self.segmentSerial += 1
             self.sessionId += 1          // 让还在进行的精修、整理结果作废
             self.sessionOrder = []
             self.sessionTexts = [:]
@@ -193,6 +202,7 @@ final class SpeechEngine: ObservableObject {
         segmentAudio.append(contentsOf: samples)
         s.accept(samples)
         updatePartial()
+        maybeLiveDecode(now: now)
 
         if s.isEndpoint {
             finishSegment()
@@ -209,17 +219,43 @@ final class SpeechEngine: ObservableObject {
         guard text != lastPartial else { return }
         lastPartial = text
         if !text.isEmpty { lastSpeechAt = Date() }
+        // Qwen3 已经给出这一句的结果后，就不再用流式模型的文字覆盖
+        guard liveText.isEmpty else { return }
         let shown = TextPostProcessor.process(text, settings: AppSettings.shared.snapshot)
         emit(IPCEvent(type: .partial, text: shown))
+    }
+
+    private func maybeLiveDecode(now: Date) {
+        guard !liveBusy, pendingIds.isEmpty, !lastPartial.isEmpty,
+              segmentAudio.count >= 12_800, segmentAudio.count <= 16_000 * 15,
+              now.timeIntervalSince(lastLiveAt) >= 1.0 else { return }
+        liveBusy = true
+        lastLiveAt = now
+        let audio = segmentAudio
+        let serial = segmentSerial
+        let settings = AppSettings.shared.snapshot
+        let hot = settings.hotwords.joined(separator: ",")
+        refineQueue.async {
+            let text = self.refiner?.transcribe(audio, hotwords: hot) ?? ""
+            self.work.async {
+                self.liveBusy = false
+                guard serial == self.segmentSerial, self.listening, !text.isEmpty else { return }
+                self.liveText = text
+                self.emit(IPCEvent(type: .partial, text: TextPostProcessor.process(text, settings: settings)))
+            }
+        }
     }
 
     /// 一句话说完：交给 Qwen3-ASR 精修
     private func finishSegment() {
         let raw = lastPartial
+        let live = liveText
         let audio = segmentAudio
         streaming?.reset()
         segmentAudio = []
         lastPartial = ""
+        liveText = ""
+        segmentSerial += 1
         guard !raw.isEmpty else { return }
 
         nextId += 1
@@ -228,11 +264,12 @@ final class SpeechEngine: ObservableObject {
         sessionOrder.append(id)
         pendingIds.insert(id)
         let settings = AppSettings.shared.snapshot
-        emit(IPCEvent(type: .segment, text: TextPostProcessor.process(raw, settings: settings), id: id))
+        emit(IPCEvent(type: .segment, text: TextPostProcessor.process(live.isEmpty ? raw : live, settings: settings), id: id))
+        let hot = settings.hotwords.joined(separator: ",")
 
         refineQueue.async {
             var text = ""
-            if let r = self.refiner { text = r.transcribe(audio) }
+            if let r = self.refiner { text = r.transcribe(audio, hotwords: hot) }
             if text.isEmpty { text = TextPostProcessor.ensureEnding(raw, isLast: false) }
             self.work.async {
                 guard sid == self.sessionId else { return }
@@ -258,7 +295,7 @@ final class SpeechEngine: ObservableObject {
             var result: String?
             if let p = self.polisher {
                 // 先用规则去掉明显的结巴，再交给模型
-                result = p.polish(TextPostProcessor.collapseStutter(full)) { partial in
+                result = p.polish(TextPostProcessor.collapseStutter(full), hotwords: settings.hotwords) { partial in
                     let shown = TextPostProcessor.convertScript(partial, settings: settings)
                     self.work.async {
                         guard sid == self.sessionId else { return }

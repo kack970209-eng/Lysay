@@ -12,6 +12,8 @@ struct HomeView: View {
                         .listRowBackground(Color.clear)
                 }
 
+                AccountSection()
+
                 Section {
                     SetupStep(number: 1, title: "添加 Lysay 键盘",
                               detail: "设置 › 通用 › 键盘 › 键盘 › 添加新键盘 › Lysay")
@@ -47,15 +49,15 @@ struct HomeView: View {
                     NavigationLink {
                         ClipboardView()
                     } label: {
-                        HStack {
-                            Label("粘贴板", systemImage: "doc.on.clipboard")
-                            Spacer()
-                            Text("\(coordinator.clips.count) 条")
-                                .foregroundStyle(.secondary)
-                        }
+                        Label("粘贴板", systemImage: "doc.on.clipboard")
+                    }
+                    NavigationLink {
+                        HotwordsView()
+                    } label: {
+                        Label("专有名词", systemImage: "character.book.closed")
                     }
                 } footer: {
-                    Text("在这里保存常用内容，打字时点键盘上的粘贴板按钮，点一下即可输入。")
+                    Text("粘贴板：复制过的文字和收藏文件夹，键盘上点一下即可输入。专有名词：让 AI 语音保持英文名、品牌名原样。")
                 }
 
                 Section {

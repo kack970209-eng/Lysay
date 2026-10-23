@@ -82,8 +82,7 @@ final class KeyboardViewController: UIInputViewController {
 
     /// 键盘扩展不能直接调用 UIApplication.shared.open，
     /// 这里沿响应链找到 UIApplication 实例，用运行时调用打开主 App。
-    func openMainApp() {
-        let url = LysayIPC.dictateURL
+    func openMainApp(_ url: URL) {
         let selector = NSSelectorFromString("openURL:options:completionHandler:")
         var responder: UIResponder? = self
         while let r = responder {
