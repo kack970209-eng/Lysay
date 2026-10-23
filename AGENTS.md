@@ -54,7 +54,7 @@ Windows 无法编译 iOS。推送到 `main` 后，GitHub Actions（`macos-26`，
 - 1.0.2 真机测试：语音功能正常
 - 1.0.6（Release `build-6`）：注音键盘、新图标、精简首页、粘贴板，使用者测试整体没问题
 - 1.0.7（Release `build-7`）：语音改为说话框 + ✕/✓ + 三色声波 + AI 整理，使用者测试 UI 很好
-- 第 04 份交接：注音进输入框、专有名词、剪贴板记录/文件夹、登录与 Pro、Cloudflare 后台；构建结果见最新交接
+- 1.0.8（Release `build-8`）：注音进输入框、专有名词、剪贴板记录/文件夹、登录与 Pro、Cloudflare 后台；构建成功，尚未真机测试
 - Google 登录待使用者提供 iOS OAuth 客户端 ID（GitHub 仓库变量 `GOOGLE_IOS_CLIENT_ID` + wrangler.toml `GOOGLE_CLIENT_IDS`）
 - IPA 约 1.7GB（Qwen3-ASR + Qwen3-0.6B），已接近 GitHub Release 单文件 2GB 上限
 - 未实现：注音词频学习、长按地球键切换输入法列表
