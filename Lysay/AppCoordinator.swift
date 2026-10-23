@@ -115,7 +115,7 @@ final class AppCoordinator: ObservableObject {
 
     private func checkKeepAlive() {
         guard engine.micRunning else { return }
-        if engine.state == .listening || engine.state == .processing {
+        if engine.state == .listening || engine.state == .processing || engine.state == .polishing {
             lastActivity = Date()
             return
         }
@@ -151,10 +151,10 @@ final class AppCoordinator: ObservableObject {
                 }
             }
             engine.startListening()
-        case .stop:
-            engine.stopListening()
+        case .stop, .finish:
+            engine.finishSession()
         case .cancel:
-            engine.cancelListening()
+            engine.cancelSession()
         }
     }
 

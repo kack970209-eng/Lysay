@@ -11,6 +11,13 @@ enum ModelPaths {
     /// 精修模型：Qwen3-ASR-0.6B（int8）
     static var qwen3: URL? { root?.appendingPathComponent("qwen3", isDirectory: true) }
 
+    /// AI 整理：Qwen3-0.6B（GGUF Q8_0，llama.cpp）
+    static var polisher: URL? {
+        guard let url = root?.appendingPathComponent("llm/qwen3-0.6b-q8_0.gguf"),
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
     static func exists(_ url: URL?) -> Bool {
         guard let url else { return false }
         return FileManager.default.fileExists(atPath: url.path)

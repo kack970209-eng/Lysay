@@ -7,7 +7,8 @@ final class KeyboardModel: ObservableObject {
         case idle
         case connecting
         case listening
-        case processing
+        case processing     // 等最后几句精修
+        case polishing      // AI 整理中
         case loading
     }
 
@@ -21,7 +22,10 @@ final class KeyboardModel: ObservableObject {
     @Published var capsLock = false
     @Published var script: ScriptMode
     @Published var level: Float = 0
-    @Published var preview = ""          // 正在识别、还没上屏的文字
+    /// 说话框里显示的文字（精修过的句子 + 正在说的句子）
+    @Published var voiceText = ""
+    /// AI 整理中逐步生成的文字
+    @Published var polishText = ""
     @Published var hint: String?
     @Published var needsGlobe = true
     @Published var returnTitle = "换行"
@@ -39,10 +43,8 @@ final class KeyboardModel: ObservableObject {
 
     private let client = IPCClient()
     private let defaults = UserDefaults.standard
-    private var pending: [(id: Int, text: String)] = []
+    private var segments: [(id: Int, text: String)] = []
     private var partial = ""
-    private var markedActive = false
-    private var liveCompose = true
     private var hintTimer: Timer?
     private let zhuyin = ZhuyinEngine()
     private var zhuyinMarked = false
@@ -52,7 +54,6 @@ final class KeyboardModel: ObservableObject {
 
     init() {
         script = ScriptMode(rawValue: UserDefaults.standard.string(forKey: "script.v2") ?? "") ?? .hant
-        liveCompose = UserDefaults.standard.object(forKey: "liveCompose") as? Bool ?? true
         if let saved = UserDefaults.standard.string(forKey: "layout"), let l = Layout(rawValue: saved),
            l == .voice || l == .zhuyin || l == .letters {
             layout = l
@@ -66,14 +67,22 @@ final class KeyboardModel: ObservableObject {
 
     // MARK: - 生命周期
 
+    var voiceSessionActive: Bool {
+        switch voiceState {
+        case .listening, .processing, .polishing: return true
+        default: return false
+        }
+    }
+
     func keyboardDidAppear() {
         // 刚从 Lysay 返回：自动开始听写
         let t = defaults.double(forKey: Self.autoStartKey)
         if t > 0, Date().timeIntervalSince1970 - t < 90 {
             defaults.removeObject(forKey: Self.autoStartKey)
+            layout = .voice
             startVoice(fromAutoStart: true)
         } else {
-            // 预先连一下，同步简繁设置
+            // 预先连一下，同步简繁设置和粘贴板
             client.connect { [weak self] ok in
                 if ok { self?.client.send(IPCCommand(cmd: .hello)) }
             }
@@ -82,14 +91,10 @@ final class KeyboardModel: ObservableObject {
 
     func keyboardWillDisappear() {
         commitZhuyinAll()
-        if voiceState == .listening {
-            client.send(IPCCommand(cmd: .stop))
+        if voiceSessionActive {
+            client.send(IPCCommand(cmd: .cancel))
         }
-        commitMarkedText()
-        pending.removeAll()
-        partial = ""
-        preview = ""
-        voiceState = .idle
+        resetVoice()
         client.disconnect()
     }
 
@@ -100,20 +105,43 @@ final class KeyboardModel: ObservableObject {
         haptic()
         switch voiceState {
         case .listening:
-            client.send(IPCCommand(cmd: .stop))
-            voiceState = .processing
-        case .connecting, .processing:
+            confirmVoice()
+        case .connecting, .processing, .polishing:
             break
         case .idle, .loading:
             startVoice(fromAutoStart: false)
         }
     }
 
-    func cancelVoice() {
+    /// ✓ 讲完了：让 Lysay 做 AI 整理，整理完再上屏
+    func confirmVoice() {
         guard voiceState == .listening else { return }
-        client.send(IPCCommand(cmd: .cancel))
+        haptic()
+        if voiceText.isEmpty {
+            cancelVoice()
+            return
+        }
+        client.send(IPCCommand(cmd: .finish))
+        voiceState = .processing
+        level = 0
+    }
+
+    /// ✕ 取消这段话，什么都不输入
+    func cancelVoice() {
+        haptic()
+        if voiceSessionActive {
+            client.send(IPCCommand(cmd: .cancel))
+        }
+        resetVoice()
+    }
+
+    private func resetVoice() {
+        segments.removeAll()
         partial = ""
-        updateComposition()
+        voiceText = ""
+        polishText = ""
+        level = 0
+        voiceState = .idle
     }
 
     private func startVoice(fromAutoStart: Bool) {
@@ -121,6 +149,7 @@ final class KeyboardModel: ObservableObject {
             showHint("请在 设置 › 通用 › 键盘 › 键盘 › Lysay 中开启“允许完全访问”")
             return
         }
+        resetVoice()
         voiceState = .connecting
         client.connect { [weak self] ok in
             guard let self else { return }
@@ -157,36 +186,50 @@ final class KeyboardModel: ObservableObject {
                 script = s
                 defaults.set(s.rawValue, forKey: "script.v2")
             }
-            if let c = e.liveCompose {
-                liveCompose = c
-                defaults.set(c, forKey: "liveCompose")
-            }
             switch e.state {
             case .listening?:
-                voiceState = .listening
-                hint = nil
-            case .processing?:
-                voiceState = .processing
-            case .loading?:
-                voiceState = .loading
-                showHint("Lysay 正在加载语音模型，请稍候")
-            case .ready?:
-                if voiceState != .idle && pending.isEmpty {
-                    voiceState = .idle
-                    level = 0
+                if voiceState == .connecting || voiceState == .idle || voiceState == .loading {
+                    voiceState = .listening
+                    hint = nil
                 }
+            case .processing?:
+                if voiceState == .listening { voiceState = .processing }
+            case .polishing?:
+                if voiceSessionActive { voiceState = .polishing }
+            case .loading?:
+                if voiceState == .connecting {
+                    voiceState = .loading
+                    showHint("Lysay 正在加载语音模型，请稍候")
+                }
+            case .ready?:
+                if voiceState == .loading || voiceState == .connecting { voiceState = .idle }
             case nil:
                 break
             }
         case .partial:
+            guard voiceState == .listening else { return }
             partial = e.text ?? ""
-            updateComposition()
+            refreshVoiceText()
         case .segment:
-            if let id = e.id { pending.append((id, e.text ?? "")) }
+            guard voiceSessionActive else { return }
+            if let id = e.id { segments.append((id, e.text ?? "")) }
             partial = ""
-            updateComposition()
+            refreshVoiceText()
         case .final:
-            commitFinal(id: e.id, text: e.text ?? "")
+            guard voiceSessionActive else { return }
+            if let id = e.id, let i = segments.firstIndex(where: { $0.id == id }) {
+                segments[i].text = e.text ?? segments[i].text
+            }
+            refreshVoiceText()
+        case .polishDelta:
+            guard voiceSessionActive else { return }
+            voiceState = .polishing
+            polishText = e.text ?? ""
+        case .polished:
+            guard voiceSessionActive else { return }
+            let text = e.text ?? ""
+            if !text.isEmpty { proxy?.insertText(text) }
+            resetVoice()
         case .level:
             if voiceState == .listening { level = e.level ?? 0 }
         case .needApp:
@@ -196,65 +239,18 @@ final class KeyboardModel: ObservableObject {
             ClipStore.cacheLocally(clips)
         case .error:
             showHint(e.message ?? "出错了")
-            voiceState = .idle
+            resetVoice()
         }
+    }
+
+    private func refreshVoiceText() {
+        voiceText = segments.map { $0.text }.joined() + partial
     }
 
     private func connectionLost() {
         if voiceState != .idle {
-            commitMarkedText()
-            pending.removeAll()
-            partial = ""
-            preview = ""
-            voiceState = .idle
+            resetVoice()
             showHint("与 Lysay 的连接已断开")
-        }
-    }
-
-    // MARK: - 上屏
-
-    /// 待精修的句子 + 正在说的句子，作为“标记文本”实时显示在输入框里
-    private func updateComposition() {
-        let text = pending.map { $0.text }.joined() + partial
-        preview = text
-        guard liveCompose, let proxy else { return }
-        if text.isEmpty {
-            if markedActive {
-                proxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
-                proxy.unmarkText()
-                markedActive = false
-            }
-        } else {
-            proxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
-            markedActive = true
-        }
-    }
-
-    private func commitFinal(id: Int?, text: String) {
-        if let id, let idx = pending.firstIndex(where: { $0.id == id }) {
-            pending.remove(at: idx)
-        }
-        if let proxy {
-            if markedActive {
-                // 用精修后的文字替换标记文本并确认
-                proxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
-                proxy.unmarkText()
-                markedActive = false
-            } else if !text.isEmpty {
-                proxy.insertText(text)
-            }
-        }
-        updateComposition()
-        if pending.isEmpty && voiceState == .processing {
-            voiceState = .idle
-            level = 0
-        }
-    }
-
-    private func commitMarkedText() {
-        if markedActive {
-            proxy?.unmarkText()
-            markedActive = false
         }
     }
 
@@ -273,7 +269,6 @@ final class KeyboardModel: ObservableObject {
     // MARK: - 打字
 
     func insert(_ s: String) {
-        if voiceState == .listening || voiceState == .processing { commitMarkedText() }
         commitZhuyinAll()
         var text = s
         if layout == .letters && (shifted || capsLock) { text = s.uppercased() }
@@ -287,11 +282,6 @@ final class KeyboardModel: ObservableObject {
             zhuyin.backspace()
             refreshZhuyin()
             keyClick()
-            return
-        }
-        if markedActive {
-            // 说话过程中删除：取消当前识别
-            cancelVoice()
             return
         }
         proxy?.deleteBackward()
@@ -310,7 +300,6 @@ final class KeyboardModel: ObservableObject {
             keyClick()
             return
         }
-        commitMarkedText()
         proxy?.insertText(" ")
         keyClick()
     }
@@ -321,7 +310,6 @@ final class KeyboardModel: ObservableObject {
             keyClick()
             return
         }
-        commitMarkedText()
         proxy?.insertText("\n")
         keyClick()
     }
@@ -330,7 +318,6 @@ final class KeyboardModel: ObservableObject {
 
     func zhuyinKey(_ key: String) {
         guard let c = key.first else { return }
-        if voiceState == .listening || voiceState == .processing { commitMarkedText() }
         if ZhuyinEngine.isTone(c) {
             if !zhuyin.inputTone(c) && !zhuyin.isComposing {
                 proxy?.insertText(key)
@@ -408,14 +395,12 @@ final class KeyboardModel: ObservableObject {
     }
 
     func insertClip(_ item: ClipItem) {
-        commitMarkedText()
         proxy?.insertText(item.text)
         haptic()
     }
 
     func pasteSystemClipboard() {
         if let text = UIPasteboard.general.string, !text.isEmpty {
-            commitMarkedText()
             proxy?.insertText(text)
             haptic()
         } else {

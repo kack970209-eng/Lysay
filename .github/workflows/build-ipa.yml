@@ -16,6 +16,8 @@ env:
   SHERPA_VERSION: "1.13.8"
   STREAMING_REPO: "csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en"
   QWEN3_MODEL: "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25"
+  LLAMA_BUILD: "b11829"
+  LLM_URL: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf"
 
 jobs:
   build:
@@ -29,7 +31,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: Resources/Models
-          key: models-v1-paraformer-bilingual-int8-${{ env.QWEN3_MODEL }}
+          key: models-v2-paraformer-bilingual-int8-${{ env.QWEN3_MODEL }}-qwen3-0.6b-q8
 
       - name: Download streaming model (Paraformer int8)
         if: steps.cache-models.outputs.cache-hit != 'true'
@@ -60,20 +62,31 @@ jobs:
           cp -R "$src/tokenizer" Resources/Models/qwen3/
           du -sh Resources/Models/*
 
+      - name: Download AI polish model (Qwen3-0.6B Q8_0)
+        if: steps.cache-models.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p Resources/Models/llm
+          curl -fSL --retry 3 -o Resources/Models/llm/qwen3-0.6b-q8_0.gguf "$LLM_URL"
+          ls -la Resources/Models/llm
+
       - name: Save model cache
         if: steps.cache-models.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: Resources/Models
-          key: models-v1-paraformer-bilingual-int8-${{ env.QWEN3_MODEL }}
+          key: models-v2-paraformer-bilingual-int8-${{ env.QWEN3_MODEL }}-qwen3-0.6b-q8
 
-      - name: Download sherpa-onnx framework
+      - name: Download frameworks (sherpa-onnx, llama.cpp)
         run: |
           set -euo pipefail
           mkdir -p Frameworks && cd Frameworks
           curl -fSL --retry 3 -o sherpa.zip \
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/xcframework/sherpa-onnx-v${SHERPA_VERSION}-ios-shared-onnxruntime-static.xcframework.zip"
           unzip -q sherpa.zip && rm sherpa.zip
+          curl -fSL --retry 3 -o llama.zip             "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-xcframework.zip"
+          unzip -q llama.zip && rm llama.zip
+          mv build-apple/llama.xcframework . && rm -rf build-apple
           ls -la
 
       - name: Generate Xcode project

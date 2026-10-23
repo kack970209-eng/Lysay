@@ -16,6 +16,34 @@ enum TextPostProcessor {
     private static let repeatedPunct = try! NSRegularExpression(pattern: "([，、,])[，、,]+", options: [])
     private static let commaBeforeStop = try! NSRegularExpression(pattern: "[，、,]+([。！？!?])", options: [])
 
+    // “我我我” → “我”（同一个字连续 3 次以上）
+    private static let charStutter = try! NSRegularExpression(pattern: "([\\u4e00-\\u9fff])\\1{2,}", options: [])
+    // “我，我，我想” → “我想”
+    private static let commaStutter = try! NSRegularExpression(
+        pattern: "([\\u4e00-\\u9fff]{1,2})(?:[，、,]\\s*\\1)+(?=[，、,]?)", options: [])
+    // “然后然后” “就是就是” → 只留一个
+    private static let wordStutter = try! NSRegularExpression(pattern: "([\\u4e00-\\u9fff]{2,4})\\1+", options: [])
+
+    /// 去掉结巴和重复的字词
+    static func collapseStutter(_ input: String) -> String {
+        var text = replace(commaStutter, in: input, with: "$1")
+        text = replace(charStutter, in: text, with: "$1")
+        text = replace(wordStutter, in: text, with: "$1")
+        return text
+    }
+
+    /// AI 整理失败时的退路：规则清理
+    static func ruleBasedPolish(_ raw: String) -> String {
+        var text = collapseStutter(raw)
+        text = removeFillers(text)
+        return ensureEnding(text, isLast: true)
+    }
+
+    /// 只做简繁转换
+    static func convertScript(_ text: String, settings: AppSettings.Snapshot) -> String {
+        ChineseConverter.shared.convert(text, script: settings.script, variant: settings.variant)
+    }
+
     static func process(_ raw: String, settings: AppSettings.Snapshot) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if settings.removeFillers {

@@ -1,9 +1,10 @@
 import Foundation
 import Combine
 
-/// 语音引擎：两段式识别
+/// 语音引擎：
 /// 1. 流式 Paraformer 边说边出字（partial）
-/// 2. 检测到停顿（一句话说完）后，把整句音频交给 Qwen3-ASR 精修，得到带标点的最终文字（final）
+/// 2. 检测到停顿（一句话说完）后，把整句音频交给 Qwen3-ASR 精修，得到带标点的句子（final）
+/// 3. 用户按“完成”后，等所有句子精修完，用 Qwen3-0.6B 把整段话整理通顺（polished）
 final class SpeechEngine: ObservableObject {
     static let shared = SpeechEngine()
 
@@ -21,6 +22,7 @@ final class SpeechEngine: ObservableObject {
     private let capture = AudioCapture()
     private let work = DispatchQueue(label: "lysay.asr", qos: .userInitiated)
     private let refineQueue = DispatchQueue(label: "lysay.refine", qos: .userInitiated)
+    private let polishQueue = DispatchQueue(label: "lysay.polish", qos: .userInitiated)
 
     // 以下只在 work 队列访问
     private var streaming: StreamingRecognizer?
@@ -29,12 +31,19 @@ final class SpeechEngine: ObservableObject {
     private var segmentAudio: [Float] = []
     private var lastPartial = ""
     private var nextId = 0
-    private var pendingRefines = 0
     private var lastLevelAt = Date.distantPast
     private var lastSpeechAt = Date()
+    // 当前这段话（从按麦克风到按完成/取消）
+    private var sessionId = 0
+    private var sessionOrder: [Int] = []
+    private var sessionTexts: [Int: String] = [:]   // 精修后的原文（未转繁体）
+    private var pendingIds = Set<Int>()
+    private var finishing = false
 
     // 只在 refineQueue 访问
     private var refiner: RefineRecognizer?
+    // 只在 polishQueue 访问
+    private var polisher: TextPolisher?
 
     private init() {
         capture.onSamples = { [weak self] samples in
@@ -42,7 +51,7 @@ final class SpeechEngine: ObservableObject {
         }
         capture.onInterrupted = { [weak self] in
             self?.micRunning = false
-            self?.stopListening()
+            self?.finishSession()
         }
     }
 
@@ -60,7 +69,11 @@ final class SpeechEngine: ObservableObject {
                 if rec != nil, self.state == .loading { self.setState(.ready) }
             }
         }
-        if AppSettings.shared.refineEnabled { loadRefiner() }
+        loadRefiner()
+        polishQueue.async {
+            guard self.polisher == nil, let url = ModelPaths.polisher else { return }
+            self.polisher = TextPolisher(modelURL: url)
+        }
     }
 
     func loadRefiner() {
@@ -78,13 +91,6 @@ final class SpeechEngine: ObservableObject {
         }
     }
 
-    func unloadRefiner() {
-        refineQueue.async {
-            self.refiner = nil
-            DispatchQueue.main.async { self.refineReady = false }
-        }
-    }
-
     // MARK: - 麦克风
 
     func startMic() throws {
@@ -94,7 +100,7 @@ final class SpeechEngine: ObservableObject {
     }
 
     func stopMic() {
-        stopListening()
+        cancelSession()
         capture.stop()
         micRunning = false
         level = 0
@@ -109,6 +115,12 @@ final class SpeechEngine: ObservableObject {
         }
         work.async {
             guard !self.listening, let s = self.streaming else { return }
+            // 新的一段话
+            self.sessionId += 1
+            self.sessionOrder = []
+            self.sessionTexts = [:]
+            self.pendingIds = []
+            self.finishing = false
             s.reset()
             self.listening = true
             self.lastPartial = ""
@@ -121,25 +133,40 @@ final class SpeechEngine: ObservableObject {
         }
     }
 
-    func stopListening() {
+    /// 讲完了：结束录音，等精修完成后做 AI 整理
+    func finishSession() {
         work.async {
-            guard self.listening else { return }
-            self.listening = false
-            self.streaming?.flush()
-            self.updatePartial()
-            self.finishSegment(isLast: true)
+            if self.listening {
+                self.listening = false
+                self.streaming?.flush()
+                self.updatePartial()
+                self.finishSegment()
+            }
+            guard !self.sessionOrder.isEmpty || !self.pendingIds.isEmpty else {
+                // 什么都没说
+                self.emit(IPCEvent(type: .polished, text: ""))
+                self.emitState(.ready)
+                return
+            }
+            self.finishing = true
+            self.emitState(.processing)
+            self.checkFinish()
         }
     }
 
-    func cancelListening() {
+    /// 取消这段话
+    func cancelSession() {
         work.async {
-            guard self.listening else { return }
             self.listening = false
             self.streaming?.reset()
             self.segmentAudio = []
             self.lastPartial = ""
-            self.emit(IPCEvent(type: .partial, text: ""))
-            self.emitState(self.pendingRefines > 0 ? .processing : .ready)
+            self.sessionId += 1          // 让还在进行的精修、整理结果作废
+            self.sessionOrder = []
+            self.sessionTexts = [:]
+            self.pendingIds = []
+            self.finishing = false
+            self.emitState(.ready)
         }
     }
 
@@ -152,7 +179,7 @@ final class SpeechEngine: ObservableObject {
 
     private func process(_ samples: [Float]) {
         let now = Date()
-        if now.timeIntervalSince(lastLevelAt) > 0.06 {
+        if now.timeIntervalSince(lastLevelAt) > 0.05 {
             lastLevelAt = now
             emit(IPCEvent(type: .level, level: Self.level(of: samples)))
         }
@@ -168,11 +195,11 @@ final class SpeechEngine: ObservableObject {
         updatePartial()
 
         if s.isEndpoint {
-            finishSegment(isLast: false)
-        } else if lastPartial.isEmpty, now.timeIntervalSince(lastSpeechAt) > 30 {
-            // 30 秒没说话，自动结束
-            listening = false
-            finishSegment(isLast: true)
+            finishSegment()
+        } else if now.timeIntervalSince(lastSpeechAt) > 60 {
+            // 一分钟没说话，自动结束这一句（不结束整段）
+            lastSpeechAt = now
+            finishSegment()
         }
     }
 
@@ -186,39 +213,67 @@ final class SpeechEngine: ObservableObject {
         emit(IPCEvent(type: .partial, text: shown))
     }
 
-    private func finishSegment(isLast: Bool) {
+    /// 一句话说完：交给 Qwen3-ASR 精修
+    private func finishSegment() {
         let raw = lastPartial
         let audio = segmentAudio
         streaming?.reset()
         segmentAudio = []
         lastPartial = ""
-
-        guard !raw.isEmpty else {
-            if isLast { emitState(pendingRefines > 0 ? .processing : .ready) }
-            return
-        }
+        guard !raw.isEmpty else { return }
 
         nextId += 1
         let id = nextId
-        pendingRefines += 1
+        let sid = sessionId
+        sessionOrder.append(id)
+        pendingIds.insert(id)
         let settings = AppSettings.shared.snapshot
         emit(IPCEvent(type: .segment, text: TextPostProcessor.process(raw, settings: settings), id: id))
-        if isLast { emitState(.processing) }
 
         refineQueue.async {
             var text = ""
-            if settings.refineEnabled, let r = self.refiner {
-                text = r.transcribe(audio)
-            }
-            if text.isEmpty { text = raw }
-            text = TextPostProcessor.ensureEnding(text, isLast: isLast)
-            let out = TextPostProcessor.process(text, settings: settings)
+            if let r = self.refiner { text = r.transcribe(audio) }
+            if text.isEmpty { text = TextPostProcessor.ensureEnding(raw, isLast: false) }
             self.work.async {
-                self.pendingRefines -= 1
-                self.emit(IPCEvent(type: .final, text: out, id: id))
-                if !self.listening && self.pendingRefines == 0 {
-                    self.emitState(.ready)
+                guard sid == self.sessionId else { return }
+                self.pendingIds.remove(id)
+                self.sessionTexts[id] = text
+                self.emit(IPCEvent(type: .final, text: TextPostProcessor.process(text, settings: settings), id: id))
+                self.checkFinish()
+            }
+        }
+    }
+
+    /// 全部句子都精修完了，开始 AI 整理
+    private func checkFinish() {
+        guard finishing, pendingIds.isEmpty else { return }
+        finishing = false
+        let full = sessionOrder.compactMap { sessionTexts[$0] }.joined()
+        let sid = sessionId
+        let settings = AppSettings.shared.snapshot
+        let cleaned = TextPostProcessor.ruleBasedPolish(full)
+        emitState(.polishing)
+
+        polishQueue.async {
+            var result: String?
+            if let p = self.polisher {
+                // 先用规则去掉明显的结巴，再交给模型
+                result = p.polish(TextPostProcessor.collapseStutter(full)) { partial in
+                    let shown = TextPostProcessor.convertScript(partial, settings: settings)
+                    self.work.async {
+                        guard sid == self.sessionId else { return }
+                        self.emit(IPCEvent(type: .polishDelta, text: shown))
+                    }
                 }
+            }
+            var out = result ?? cleaned
+            out = TextPostProcessor.removeFillers(out)
+            out = TextPostProcessor.ensureEnding(out, isLast: true)
+            out = TextPostProcessor.convertScript(out, settings: settings)
+            self.work.async {
+                guard sid == self.sessionId else { return }
+                self.emit(IPCEvent(type: .polished, text: out))
+                self.emitState(.ready)
             }
         }
     }

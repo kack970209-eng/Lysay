@@ -74,11 +74,6 @@ private struct TopBar: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
-                } else if !model.preview.isEmpty {
-                    Text(model.preview)
-                        .font(.system(size: 16))
-                        .lineLimit(1)
-                        .truncationMode(.head)
                 } else {
                     Text(placeholder)
                         .font(.system(size: 14))
@@ -104,8 +99,8 @@ private struct TopBar: View {
 
     private var placeholder: String {
         switch model.voiceState {
-        case .listening: return "请说话…"
-        case .processing: return "正在精修…"
+        case .listening: return "正在聆听…"
+        case .processing, .polishing: return "AI 整理中…"
         default: return model.layout == .zhuyin ? "注音輸入" : "Lysay"
         }
     }
@@ -166,55 +161,121 @@ private struct VoicePanel: View {
     @ObservedObject var model: KeyboardModel
 
     var body: some View {
-        VStack(spacing: KeyboardMetrics.spacing) {
-            HStack(spacing: 0) {
-                VStack(spacing: KeyboardMetrics.spacing) {
-                    KeyCap(text: "，", style: .character) { model.insert("，") }
-                    KeyCap(text: "。", style: .character) { model.insert("。") }
-                    KeyCap(text: "？", style: .character) { model.insert("？") }
-                }
-                .frame(width: 66)
-
+        if model.voiceSessionActive {
+            VoiceSessionView(model: model)
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        } else {
+            VStack(spacing: 6) {
                 Spacer(minLength: 0)
-
-                VStack(spacing: 2) {
-                    Button(action: model.micTapped) {
-                        MicOrb(size: 96,
-                               active: model.voiceState == .listening,
-                               busy: model.voiceState == .connecting || model.voiceState == .processing
-                                   || model.voiceState == .loading,
-                               level: model.level)
-                    }
-                    .buttonStyle(.plain)
-                    Text(status)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                Button(action: model.micTapped) {
+                    MicOrb(size: 104,
+                           active: false,
+                           busy: model.voiceState == .connecting || model.voiceState == .loading,
+                           level: 0)
                 }
-
+                .buttonStyle(.plain)
+                Text(model.voiceState == .connecting ? "连接中…" :
+                        model.voiceState == .loading ? "模型加载中…" : "点击说话")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
-
-                VStack(spacing: KeyboardMetrics.spacing) {
-                    KeyCap(text: "！", style: .character) { model.insert("！") }
-                    KeyCap(text: "、", style: .character) { model.insert("、") }
-                    RepeatKeyCap(systemImage: "delete.left", style: .function) { model.deleteBackward() }
-                }
-                .frame(width: 66)
             }
-            .frame(maxHeight: .infinity)
-
-            BottomRow(model: model, leftLabel: "123", leftLayout: .numbers,
-                      switchLabel: "ㄅㄆㄇ", switchLayout: .zhuyin)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+}
 
-    private var status: String {
-        switch model.voiceState {
-        case .idle: return "点击说话"
-        case .connecting: return "连接中…"
-        case .listening: return "正在聆听，点击结束"
-        case .processing: return "正在精修…"
-        case .loading: return "模型加载中…"
+/// 说话中：上方是说话框（左 ✕ 取消，右 ✓ 完成），下方是三色声波
+private struct VoiceSessionView: View {
+    @ObservedObject var model: KeyboardModel
+
+    private var thinking: Bool { model.voiceState == .processing || model.voiceState == .polishing }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
+                RoundAction(systemImage: "xmark", prominent: false, action: model.cancelVoice)
+
+                SpeechBox(model: model, thinking: thinking)
+
+                RoundAction(systemImage: "checkmark", prominent: true, busy: thinking,
+                            action: model.confirmVoice)
+                    .disabled(thinking)
+            }
+            .frame(height: 132)
+
+            AIWaveView(level: model.level, mode: thinking ? .thinking : .listening)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .animation(.easeInOut(duration: 0.2), value: thinking)
+    }
+}
+
+private struct SpeechBox: View {
+    @ObservedObject var model: KeyboardModel
+    let thinking: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Image(systemName: thinking ? "sparkles" : "waveform")
+                    .symbolEffect(.variableColor.iterative, isActive: true)
+                Text(thinking ? "AI 整理中" : "正在聆听")
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(thinking ? Color.lysay : Color.secondary)
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Text(displayText)
+                        .font(.system(size: 17))
+                        .foregroundStyle(isPlaceholder ? Color.secondary : Color.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id("text")
+                }
+                .onChange(of: displayText) { _, _ in
+                    proxy.scrollTo("text", anchor: .bottom)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .lysayGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var isPlaceholder: Bool {
+        model.polishText.isEmpty && model.voiceText.isEmpty
+    }
+
+    private var displayText: String {
+        if model.voiceState == .polishing, !model.polishText.isEmpty { return model.polishText }
+        if !model.voiceText.isEmpty { return model.voiceText }
+        return thinking ? "正在整理…" : "请开始说话…"
+    }
+}
+
+private struct RoundAction: View {
+    let systemImage: String
+    let prominent: Bool
+    var busy = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                if busy {
+                    ProgressView()
+                        .tint(prominent ? .white : nil)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(prominent ? Color.white : Color.primary)
+                }
+            }
+            .frame(width: 50, height: 50)
+            .lysayGlass(in: Circle(), tint: prominent ? Color.lysay : nil, interactive: true)
+        }
+        .buttonStyle(.plain)
     }
 }
 

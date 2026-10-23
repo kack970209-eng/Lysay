@@ -44,6 +44,9 @@ targets:
       - framework: Frameworks/SherpaOnnxC.xcframework
         embed: true
         codeSign: false
+      - framework: Frameworks/llama.xcframework
+        embed: true
+        codeSign: false
     info:
       path: Lysay/Info.plist
       properties:

@@ -16,6 +16,7 @@ Lysay 是一款 iOS 第三方输入法，主打 **AI 语音输入**：边说边�
 
 1. **流式**：阿里 Paraformer 中英双语流式模型 int8（`Resources/Models/streaming/`），实时出字 + 端点检测（停顿 0.8 秒算一句）
 2. **精修**：Qwen3-ASR-0.6B int8（`Resources/Models/qwen3/`），整句重新识别，自带标点
+3. **AI 整理**：用户在键盘按 ✓ 后，用 Qwen3-0.6B Q8_0（llama.cpp b11829，`Resources/Models/llm/`，只用 CPU）把整段话整理通顺再上屏；失败时退回规则清理
 
 **iOS 限制**：键盘扩展不能用麦克风。录音和识别都在主 App；键盘第一次按麦克风时用 `lysay://dictate` 跳到主 App 开麦，用户点左上角“◀ 返回”回原应用，键盘自动开始听写。主 App 靠 `UIBackgroundModes=audio` 在后台持续录音（默认保持 5 分钟）。
 
@@ -27,7 +28,7 @@ Lysay 是一款 iOS 第三方输入法，主打 **AI 语音输入**：边说边�
 | --- | --- |
 | `Lysay/` | 主 App（SwiftUI）：首页（开始使用教学 + 粘贴板入口 + 版本）、`ClipboardView`、键盘跳转引导页、`AppCoordinator` 总调度 |
 | `LysayKeyboard/` | 键盘扩展：`KeyboardViewController`、`KeyboardModel`（上屏逻辑）、`KeyboardView`（界面）、`IPCClient`、`ZhuyinEngine` / `ZhuyinDictionary`（注音） |
-| `Engine/` | 仅主 App：`SpeechEngine`（两段式识别）、`Recognizers`（sherpa-onnx 封装）、`AudioCapture`、`LocalServer`、`ChineseConverter`（OpenCC）、`TextPostProcessor`（去语气词）、`AppSettings` |
+| `Engine/` | 仅主 App：`SpeechEngine`（识别 + 整理流程）、`TextPolisher`（AI 整理）、`Recognizers`（sherpa-onnx 封装）、`AudioCapture`、`LocalServer`、`ChineseConverter`（OpenCC）、`TextPostProcessor`（去语气词）、`AppSettings` |
 | `Shared/` | 两个 target 共用：通信协议、液态玻璃样式、麦克风圆球、`ClipStore`（粘贴板存取） |
 | `Vendor/SherpaOnnx.swift` | sherpa-onnx 官方 Swift 封装（v1.13.8，开头加了 `import SherpaOnnxC`） |
 | `Resources/OpenCC/` | OpenCC 繁简词库（已提交） |
@@ -48,8 +49,9 @@ Windows 无法编译 iOS。推送到 `main` 后，GitHub Actions（`macos-26`，
 ## 目前状态
 
 - 1.0.2 真机测试：语音功能正常
-- 1.0.6（Release `build-6`）：注音键盘、新图标、精简首页、粘贴板，已构建成功，尚未真机测试
-- IPA 约 1.1GB（主要是 Qwen3 模型），Qwen3 运行时约占 1GB 内存
+- 1.0.6（Release `build-6`）：注音键盘、新图标、精简首页、粘贴板，使用者测试整体没问题
+- 第 03 份交接：语音改为说话框 + ✕/✓ + 三色声波 + AI 整理，构建与测试结果见最新交接
+- IPA 约 1.7GB（Qwen3-ASR + Qwen3-0.6B），已接近 GitHub Release 单文件 2GB 上限
 - 未实现：注音词频学习、长按地球键切换输入法列表
 
 ## 长期规则
@@ -61,6 +63,9 @@ Windows 无法编译 iOS。推送到 `main` 后，GitHub Actions（`macos-26`，
 - 打字键盘要繁体注音（ㄅㄆㄇㄈ），不是简体/英文（来源 02）
 - 图标：黑色底，LY 与语音结合成一体，不要对话气泡之类“AI 感”的图（来源 02）
 - 主 App 首页只保留“开始使用”教学、粘贴板入口和版本信息；精修默认开启不给开关，不显示模型状态（来源 02）
+- 语音面板只放一个麦克风按钮，不放标点（来源 03）
+- 语音不直接上屏：先显示在说话框（✕ 取消 / ✓ 完成），按 ✓ 后 AI 整理再输出（来源 03）
+- 说话时显示三色线条交缠、随声音波动的效果（来源 03）
 
 ## 查历史的方法
 

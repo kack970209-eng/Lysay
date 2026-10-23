@@ -23,6 +23,7 @@ enum ScriptMode: String, Codable, CaseIterable {
 struct IPCCommand: Codable {
     enum Kind: String, Codable {
         case hello, start, stop, cancel, setScript
+        case finish     // 讲完了，开始 AI 整理
     }
     var cmd: Kind
     var script: ScriptMode?
@@ -34,7 +35,9 @@ struct IPCEvent: Codable {
         case state      // 引擎状态
         case partial    // 当前句子的实时识别（会不断变化）
         case segment    // 一句话说完，原始文字，等待精修
-        case final      // 精修后的最终文字，可以上屏
+        case final      // 精修后的句子（显示在键盘的说话框里）
+        case polishDelta // AI 整理进行中的文字
+        case polished   // AI 整理完成，可以上屏
         case level      // 音量，用于动画
         case needApp    // 需要跳到主 App 开启麦克风
         case clips      // 粘贴板内容同步
@@ -42,7 +45,7 @@ struct IPCEvent: Codable {
     }
 
     enum EngineState: String, Codable {
-        case loading, ready, listening, processing
+        case loading, ready, listening, processing, polishing
     }
 
     var type: Kind
