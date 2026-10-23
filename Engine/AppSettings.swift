@@ -29,18 +29,18 @@ final class AppSettings: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private let lock = NSLock()
-    private var _script: ScriptMode
+    private var lockedScript: ScriptMode
 
     @Published var script: ScriptMode {
         didSet {
             defaults.set(script.rawValue, forKey: Self.scriptKey)
-            lock.lock(); _script = script; lock.unlock()
+            lock.lock(); lockedScript = script; lock.unlock()
         }
     }
 
     var snapshot: Snapshot {
         lock.lock(); defer { lock.unlock() }
-        return Snapshot(script: _script, variant: variant, refineEnabled: refineEnabled,
+        return Snapshot(script: lockedScript, variant: variant, refineEnabled: refineEnabled,
                         removeFillers: removeFillers, liveCompose: liveCompose,
                         keepAliveMinutes: keepAliveMinutes)
     }
@@ -50,7 +50,7 @@ final class AppSettings: ObservableObject {
     private init() {
         // 默认繁体
         let s = ScriptMode(rawValue: defaults.string(forKey: Self.scriptKey) ?? "") ?? .hant
-        _script = s
+        lockedScript = s
         script = s
     }
 }

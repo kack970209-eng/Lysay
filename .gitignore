@@ -14,3 +14,4 @@ Payload/
 build.log
 
 .DS_Store
+._*
