@@ -1,5 +1,6 @@
 // Lysay 后端：登录（Apple / Google）、AI 语音用量与订阅、剪贴板同步、管理后台
 import { ADMIN_HTML } from "./admin";
+import { HOME_HTML, PRIVACY_HTML, TERMS_HTML } from "./pages";
 
 interface Env {
   DB: any; // D1Database
@@ -421,7 +422,11 @@ export default {
     if (req.method === "OPTIONS") return json({});
 
     try {
-      if (path === "/" || path === "/health") return json({ ok: true, service: "lysay" });
+      if (path === "/health") return json({ ok: true, service: "lysay" });
+      const html = (h: string) => new Response(h, { headers: { "content-type": "text/html; charset=utf-8" } });
+      if (path === "/") return html(HOME_HTML);
+      if (path === "/privacy") return html(PRIVACY_HTML);
+      if (path === "/terms") return html(TERMS_HTML);
 
       if (path === "/admin") {
         return new Response(ADMIN_HTML, { headers: { "content-type": "text/html; charset=utf-8" } });

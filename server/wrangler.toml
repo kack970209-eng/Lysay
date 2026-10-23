@@ -4,7 +4,7 @@ compatibility_date = "2026-10-01"
 
 [vars]
 # Google OAuth 客户端 ID（iOS 类型），逗号分隔；在 Google Cloud 建好后填进来
-GOOGLE_CLIENT_IDS = ""
+GOOGLE_CLIENT_IDS = "235544963814-s9drm069vrd444gul4g5sdgcvvmecj9j.apps.googleusercontent.com"
 # Apple 登录的 audience = App 的 Bundle ID，逗号分隔
 APPLE_AUDIENCES = "com.lysay.app"
 # 免费 AI 语音额度：4 小时
