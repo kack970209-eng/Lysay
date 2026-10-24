@@ -276,6 +276,17 @@ final class AccountManager: NSObject, ObservableObject {
         }
     }
 
+    /// 把 Apple 签名的交易交给服务器验证并开通 Pro
+    func verifyTransactions(_ jws: [String]) async {
+        guard isLoggedIn, !jws.isEmpty else { return }
+        do {
+            let p: Profile = try await request("/v1/iap/verify", method: "POST", body: ["signedTransactions": jws])
+            await MainActor.run { self.setProfile(p) }
+        } catch {
+            await MainActor.run { self.errorMessage = "订阅验证失败：\(error.localizedDescription)" }
+        }
+    }
+
     func refresh() {
         guard isLoggedIn else { return }
         flushUsage()

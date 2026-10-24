@@ -81,3 +81,15 @@ CREATE TABLE IF NOT EXISTS clip_history (
   deleted     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_clip_history_user ON clip_history (user_id, updated_at);
+
+-- Apple App 内购买订阅（以 originalTransactionId 对应用户）
+CREATE TABLE IF NOT EXISTS iap_transactions (
+  original_transaction_id TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL,
+  product_id   TEXT NOT NULL,
+  expires_at   INTEGER,
+  environment  TEXT,
+  revoked      INTEGER NOT NULL DEFAULT 0,
+  updated_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_iap_user ON iap_transactions (user_id);

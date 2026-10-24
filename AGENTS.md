@@ -7,7 +7,8 @@ Lysay 是一款 iOS 第三方输入法，主打 **AI 语音输入**：边说边�
 - 语音输出默认繁体（台湾正体），键盘上可切换简体
 - 打字用大千排列注音键盘（ㄅㄆㄇㄈ，词库来自小麦注音 McBopomofo，MIT），另有英文、数字、符号布局
 - 粘贴板：剪贴板记录（键盘自动记下复制过的文字）+ 收藏文件夹（App 内建立并写入文字），键盘里点一下输入
-- 账号：Apple / Google 登录；AI 语音为 Pro 功能，每个账号免费 4 小时，Pro 月付 150 / 年付 550（目前由管理后台手动开通）
+- 账号：Apple / Google 登录；AI 语音为 Pro 功能，每个账号免费 4 小时；Pro 用 Apple 内购订阅（月付 NT$150 / 年付 NT$550），服务器验证交易后开通，后台也可手动升级
+- App Store：App「Lysay」（Apple ID 6826259577，Team 86AD48M234），正式上传用 `.github/workflows/release-appstore.yml`（手动触发，API 密钥在 GitHub 机密）
 - 后端：Cloudflare Worker `lysay-api`（https://lysay-api.kack970209.workers.dev ，D1 数据库 `lysay`），管理后台 `/admin`
 - 设计风格贴近 iOS 原生，iOS 26 使用液态玻璃（`glassEffect`），旧系统退回毛玻璃
 - 使用者自行用证书签名工具重签 IPA 安装到手机测试

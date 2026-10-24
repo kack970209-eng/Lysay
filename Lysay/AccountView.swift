@@ -155,11 +155,12 @@ struct AccountDetailView: View {
     }
 }
 
-/// 升级 Pro（目前由管理员在后台开通）
+/// 升级 Pro：Apple 内购订阅
 struct ProUpgradeView: View {
     @EnvironmentObject private var account: AccountManager
+    @StateObject private var store = StoreManager.shared
     @Environment(\.dismiss) private var dismiss
-    @State private var copied = false
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         NavigationStack {
@@ -181,50 +182,80 @@ struct ProUpgradeView: View {
                     .listRowBackground(Color.clear)
                 }
 
-                if let p = account.profile, !p.ai.pro {
-                    Section {
-                        LabeledContent("免费 AI 语音剩余", value: formatDuration(account.remainingFreeSeconds ?? 0))
-                    }
-                }
-
-                Section("方案") {
-                    if account.plans.isEmpty {
-                        ProgressView()
-                    }
-                    ForEach(account.plans) { plan in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(plan.name).font(.headline)
-                                Text("\(plan.days) 天").font(.footnote).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text("\(currencySymbol(plan.currency))\(plan.price)")
-                                .font(.title3.bold())
+                if let p = account.profile, account.isLoggedIn {
+                    if p.ai.pro, let plan = p.plan {
+                        Section {
+                            Label("已开通 \(plan.name)", systemImage: "checkmark.seal.fill")
                                 .foregroundStyle(Color.lysay)
+                            LabeledContent("到期",
+                                           value: Date(timeIntervalSince1970: plan.expiresAt / 1000)
+                                            .formatted(date: .long, time: .omitted))
+                        }
+                    } else {
+                        Section {
+                            LabeledContent("免费 AI 语音剩余", value: formatDuration(account.remainingFreeSeconds ?? 0))
                         }
                     }
-                }
 
-                if let p = account.profile {
                     Section {
-                        Button {
-                            UIPasteboard.general.string = p.user.id
-                            copied = true
-                        } label: {
-                            LabeledContent(copied ? "已复制用户 ID" : "复制我的用户 ID") {
-                                Text(String(p.user.id.prefix(8)) + "…").font(.caption.monospaced())
+                        if store.products.isEmpty {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                Spacer()
                             }
+                        }
+                        ForEach(store.products, id: \.id) { product in
+                            Button {
+                                Task { await store.purchase(product) }
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(product.displayName).font(.headline).foregroundStyle(.primary)
+                                        Text("\(product.periodText)自动续订，可随时取消")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text(product.displayPrice)
+                                        .font(.title3.bold())
+                                        .foregroundStyle(Color.lysay)
+                                }
+                            }
+                            .disabled(store.purchasing)
                         }
                     } header: {
-                        Text("开通方式")
+                        Text("订阅方案")
                     } footer: {
-                        Text("请把用户 ID 提供给 Lysay 客服完成付款开通。开通后回到 App 下拉刷新即可生效。")
+                        Text("订阅会自动续订，除非在当期结束前至少 24 小时关闭自动续订。费用会在确认购买时向你的 Apple ID 收取，续订费用于当期结束前 24 小时内收取。可以在“设置 › Apple ID › 订阅”中管理或取消订阅。")
+                    }
+
+                    Section {
+                        Button("恢复购买") {
+                            Task { await store.restore() }
+                        }
+                        .disabled(store.purchasing)
+                        if store.purchasing {
+                            ProgressView()
+                        }
+                        if let msg = store.message {
+                            Text(msg).font(.footnote).foregroundStyle(.secondary)
+                        }
                     }
                 } else {
                     Section {
                         SignInButtons()
                     } footer: {
-                        Text("请先登录，再开通 Pro。")
+                        Text("请先登录，订阅会绑定到你的 Lysay 账号，换手机也能使用。")
+                    }
+                }
+
+                Section {
+                    Button("使用条款（EULA）") {
+                        openURL(URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+                    }
+                    Button("隐私权政策") {
+                        openURL(URL(string: "https://lysay-api.kack970209.workers.dev/privacy")!)
                     }
                 }
             }
@@ -236,20 +267,10 @@ struct ProUpgradeView: View {
                 }
             }
             .refreshable { account.refresh() }
-            .onAppear {
-                account.loadPlans()
+            .task {
+                await store.loadProducts()
                 account.refresh()
             }
-        }
-    }
-
-    private func currencySymbol(_ c: String) -> String {
-        switch c.uppercased() {
-        case "TWD": return "NT$"
-        case "CNY", "RMB": return "¥"
-        case "USD": return "$"
-        case "HKD": return "HK$"
-        default: return c + " "
         }
     }
 }

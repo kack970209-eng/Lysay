@@ -1,6 +1,7 @@
 // Lysay 后端：登录（Apple / Google）、AI 语音用量与订阅、剪贴板同步、管理后台
 import { ADMIN_HTML } from "./admin";
 import { HOME_HTML, PRIVACY_HTML, TERMS_HTML } from "./pages";
+import { verifyAppleJWS } from "./appstore";
 
 interface Env {
   DB: any; // D1Database
@@ -261,6 +262,63 @@ async function sync(env: Env, user: any, body: any) {
   });
 }
 
+// ───────────────────────── Apple App 内购买 ─────────────────────────
+
+// App Store 商品 ID → 后台套餐 ID
+const PRODUCT_PLAN: Record<string, string> = {
+  "com.lysay.pro.monthly": "monthly",
+  "com.lysay.pro.yearly": "yearly",
+};
+
+/** 处理一笔已验证的交易：记录归属，并把订阅到期日更新到较晚的那个 */
+async function applyTransaction(env: Env, tx: any, fallbackUserId: string | null): Promise<string | null> {
+  if (!list(env.APPLE_AUDIENCES).includes(tx.bundleId)) throw new Error("bundleId 不符");
+  const planId = PRODUCT_PLAN[tx.productId];
+  if (!planId) return null;
+  const original = String(tx.originalTransactionId || tx.transactionId);
+  const now = Date.now();
+
+  // 找用户：先看之前记录的归属，再看购买时带的 appAccountToken，最后用当前登录用户
+  const known: any = await env.DB.prepare("SELECT user_id FROM iap_transactions WHERE original_transaction_id = ?")
+    .bind(original).first();
+  let userId: string | null = known?.user_id ?? null;
+  if (!userId && tx.appAccountToken) {
+    const u: any = await env.DB.prepare("SELECT id FROM users WHERE lower(id) = lower(?)").bind(tx.appAccountToken).first();
+    userId = u?.id ?? null;
+  }
+  userId = userId ?? fallbackUserId;
+  if (!userId) return null;
+
+  const revoked = tx.revocationDate ? 1 : 0;
+  const expires = revoked ? Number(tx.revocationDate) : Number(tx.expiresDate || 0);
+  await env.DB.prepare(
+    `INSERT INTO iap_transactions (original_transaction_id, user_id, product_id, expires_at, environment, revoked, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(original_transaction_id) DO UPDATE SET product_id = excluded.product_id,
+       expires_at = excluded.expires_at, environment = excluded.environment, revoked = excluded.revoked,
+       updated_at = excluded.updated_at`,
+  ).bind(original, userId, tx.productId, expires, tx.environment ?? null, revoked, now).run();
+
+  const cur: any = await env.DB.prepare("SELECT * FROM subscriptions WHERE user_id = ?").bind(userId).first();
+  if (revoked) {
+    // 退款：如果目前的到期日就是这笔交易给的，就提前结束
+    if (cur && cur.expires_at <= Number(tx.expiresDate || 0)) {
+      await env.DB.prepare("UPDATE subscriptions SET expires_at = ?, updated_at = ? WHERE user_id = ?")
+        .bind(Math.min(cur.expires_at, expires), now, userId).run();
+    }
+  } else if (!cur || expires > cur.expires_at) {
+    await env.DB.prepare(
+      `INSERT INTO subscriptions (user_id, plan_id, started_at, expires_at, updated_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET plan_id = excluded.plan_id, expires_at = excluded.expires_at, updated_at = excluded.updated_at`,
+    ).bind(userId, planId, Number(tx.purchaseDate || now), expires, now).run();
+    await env.DB.prepare(
+      `INSERT INTO subscription_events (id, user_id, action, plan_id, expires_at, operator, created_at)
+       VALUES (?, ?, 'grant', ?, ?, 'appstore', ?)`,
+    ).bind(crypto.randomUUID(), userId, planId, expires, now).run();
+  }
+  return userId;
+}
+
 // ───────────────────────── 管理后台 API ─────────────────────────
 
 async function requireAdmin(req: Request, env: Env): Promise<boolean> {
@@ -457,6 +515,18 @@ export default {
         return login(env, "google", p.sub, p.email ?? null, p.name ?? null);
       }
 
+      // App Store 服务器通知（续订、退款、到期）
+      if (path === "/v1/apple/notifications" && req.method === "POST") {
+        const body = await readJson(req);
+        const n = await verifyAppleJWS(String(body.signedPayload || ""));
+        const signedTx = n?.data?.signedTransactionInfo;
+        if (signedTx) {
+          const tx = await verifyAppleJWS(signedTx);
+          await applyTransaction(env, tx, null);
+        }
+        return json({ ok: true });
+      }
+
       if (path === "/v1/plans" && req.method === "GET") {
         const rows = await env.DB.prepare("SELECT id, name, price, currency, days FROM plans WHERE active = 1 ORDER BY sort").all();
         return json({ plans: rows.results, freeSeconds: parseInt(env.FREE_AI_SECONDS || "14400", 10) });
@@ -481,6 +551,18 @@ export default {
         }
 
         if (path === "/v1/sync" && req.method === "POST") return sync(env, user, await readJson(req));
+
+        // App 购买或恢复购买后，把交易交给服务器验证
+        if (path === "/v1/iap/verify" && req.method === "POST") {
+          const body = await readJson(req);
+          const items: string[] = (body.signedTransactions || []).slice(0, 20);
+          for (const jws of items) {
+            const tx = await verifyAppleJWS(String(jws));
+            await applyTransaction(env, tx, user.id);
+          }
+          const fresh: any = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(user.id).first();
+          return json(await profile(env, fresh));
+        }
 
         if (path === "/v1/account" && req.method === "DELETE") {
           await env.DB.batch([

@@ -28,7 +28,10 @@ struct LysayApp: App {
                         .environmentObject(account)
                         .environmentObject(coordinator)
                 }
-                .onAppear { coordinator.boot() }
+                .onAppear {
+                    coordinator.boot()
+                    _ = StoreManager.shared   // 开始监听订阅续订
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { coordinator.becameActive() }

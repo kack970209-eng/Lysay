@@ -1,0 +1,146 @@
+name: Release to App Store Connect
+
+# 正式签名（App Store Connect API 密钥 + Xcode 自动签名）并上传到 App Store Connect
+on:
+  workflow_dispatch:
+    inputs:
+      marketing_version:
+        description: "App Store 版本号"
+        required: true
+        default: "1.0"
+
+env:
+  SHERPA_VERSION: "1.13.8"
+  STREAMING_REPO: "csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en"
+  QWEN3_MODEL: "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25"
+  LLAMA_BUILD: "b11829"
+  LLM_URL: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf"
+  TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore model cache
+        id: cache-models
+        uses: actions/cache/restore@v4
+        with:
+          path: Resources/Models
+          key: models-v2-paraformer-bilingual-int8-${{ env.QWEN3_MODEL }}-qwen3-0.6b-q8
+
+      - name: Download models (cache miss)
+        if: steps.cache-models.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p Resources/Models/streaming Resources/Models/qwen3 Resources/Models/llm
+          for f in encoder.int8.onnx decoder.int8.onnx tokens.txt; do
+            curl -fSL --retry 3 -o "Resources/Models/streaming/$f" "https://huggingface.co/${STREAMING_REPO}/resolve/main/$f"
+          done
+          mkdir -p /tmp/qwen && cd /tmp/qwen
+          curl -fSL --retry 3 -o model.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/${QWEN3_MODEL}.tar.bz2"
+          tar xjf model.tar.bz2 && rm model.tar.bz2
+          cd "$GITHUB_WORKSPACE"
+          src="/tmp/qwen/${QWEN3_MODEL}"
+          cp "$src/conv_frontend.onnx" "$src/encoder.int8.onnx" "$src/decoder.int8.onnx" Resources/Models/qwen3/
+          cp -R "$src/tokenizer" Resources/Models/qwen3/
+          curl -fSL --retry 3 -o Resources/Models/llm/qwen3-0.6b-q8_0.gguf "$LLM_URL"
+          du -sh Resources/Models/*
+
+      - name: Download frameworks (sherpa-onnx, llama.cpp)
+        run: |
+          set -euo pipefail
+          mkdir -p Frameworks && cd Frameworks
+          curl -fSL --retry 3 -o sherpa.zip "https://github.com/k2-fsa/sherpa-onnx/releases/download/xcframework/sherpa-onnx-v${SHERPA_VERSION}-ios-shared-onnxruntime-static.xcframework.zip"
+          unzip -q sherpa.zip && rm sherpa.zip
+          curl -fSL --retry 3 -o llama.zip "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-xcframework.zip"
+          unzip -q llama.zip && rm llama.zip
+          mv build-apple/llama.xcframework . && rm -rf build-apple
+          ls -la
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Prepare API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          printf '%s' "$ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          echo "BUILD_NUMBER=$((100 + ${{ github.run_number }}))" >> "$GITHUB_ENV"
+
+      - name: Archive
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Lysay.xcodeproj \
+            -scheme Lysay \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Lysay.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGN_IDENTITY="Apple Development" \
+            MARKETING_VERSION="${{ inputs.marketing_version }}" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            LYSAY_GOOGLE_CLIENT_ID="${{ vars.GOOGLE_IOS_CLIENT_ID }}" \
+            archive | tee archive.log | grep -E "error:|BUILD|ARCHIVE (SUCCEEDED|FAILED)" || true
+          grep -q "ARCHIVE SUCCEEDED" archive.log
+
+      - name: Export and upload to App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><false/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Lysay.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            2>&1 | tee export.log | tail -40
+          grep -qE "EXPORT SUCCEEDED|Upload succeeded|Uploaded" export.log
+          echo "已上传 版本 ${{ inputs.marketing_version }} (build $BUILD_NUMBER)"
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-logs
+          path: |
+            archive.log
+            export.log
+          if-no-files-found: ignore
+
+      - name: Remove API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"

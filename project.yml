@@ -25,6 +25,7 @@ targets:
   Lysay:
     type: application
     platform: iOS
+    scheme: {}
     sources:
       - path: Lysay
       - path: Shared
@@ -43,10 +44,10 @@ targets:
         embed: true
       - framework: Frameworks/SherpaOnnxC.xcframework
         embed: true
-        codeSign: false
+        codeSign: true
       - framework: Frameworks/llama.xcframework
         embed: true
-        codeSign: false
+        codeSign: true
     info:
       path: Lysay/Info.plist
       properties:
@@ -105,5 +106,6 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lysay.app.keyboard
         PRODUCT_NAME: LysayKeyboard
+        CODE_SIGN_ENTITLEMENTS: LysayKeyboard/LysayKeyboard.entitlements
         APPLICATION_EXTENSION_API_ONLY: "YES"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"

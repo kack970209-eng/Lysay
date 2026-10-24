@@ -132,7 +132,7 @@ jobs:
           A="Payload/Lysay.app"
           for f in "$A"/Frameworks/*.framework; do codesign --force --sign - "$f"; done
           codesign --force --sign - "$A/PlugIns/LysayKeyboard.appex"
-          codesign --force --sign - --entitlements Lysay/Lysay.entitlements "$A"
+          codesign --force --sign - --entitlements Lysay/Lysay.adhoc.entitlements "$A"
           codesign -d --entitlements - "$A" || true
           IPA="Lysay-1.0.${{ github.run_number }}-unsigned.ipa"
           zip -qry "$IPA" Payload
