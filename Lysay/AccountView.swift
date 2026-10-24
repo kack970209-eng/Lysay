@@ -161,6 +161,7 @@ struct ProUpgradeView: View {
     @StateObject private var store = StoreManager.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    private let demo = UserDefaults.standard.string(forKey: "LysayDemo") == "pro"
 
     var body: some View {
         NavigationStack {
@@ -182,7 +183,20 @@ struct ProUpgradeView: View {
                     .listRowBackground(Color.clear)
                 }
 
-                if let p = account.profile, account.isLoggedIn {
+                if demo {
+                    // App Store 截图用的示范方案
+                    Section {
+                        DemoPlanRow(name: "Lysay Pro 月付", period: "每月", price: "NT$150")
+                        DemoPlanRow(name: "Lysay Pro 年付", period: "每年", price: "NT$550")
+                    } header: {
+                        Text("订阅方案")
+                    } footer: {
+                        Text("订阅会自动续订，除非在当期结束前至少 24 小时关闭自动续订。可以在“设置 › Apple ID › 订阅”中管理或取消订阅。")
+                    }
+                    Section {
+                        Button("恢复购买") {}
+                    }
+                } else if let p = account.profile, account.isLoggedIn {
                     if p.ai.pro, let plan = p.plan {
                         Section {
                             Label("已开通 \(plan.name)", systemImage: "checkmark.seal.fill")
@@ -271,6 +285,23 @@ struct ProUpgradeView: View {
                 await store.loadProducts()
                 account.refresh()
             }
+        }
+    }
+}
+
+private struct DemoPlanRow: View {
+    let name: String
+    let period: String
+    let price: String
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).font(.headline)
+                Text("\(period)自动续订，可随时取消").font(.footnote).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(price).font(.title3.bold()).foregroundStyle(Color.lysay)
         }
     }
 }

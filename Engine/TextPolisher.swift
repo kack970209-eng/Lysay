@@ -1,4 +1,5 @@
 import Foundation
+#if canImport(llama)
 import llama
 
 /// AI 整理：用本地小模型（Qwen3-0.6B，llama.cpp）把整段口语整理成通顺的书面文字。
@@ -148,3 +149,10 @@ final class TextPolisher {
         return t
     }
 }
+#else
+/// 没有 llama.cpp 框架时（例如模拟器截图构建）的空实现
+final class TextPolisher {
+    init?(modelURL: URL, threads: Int32 = 4) { return nil }
+    func polish(_ text: String, hotwords: [String] = [], onPartial: (String) -> Void) -> String? { nil }
+}
+#endif

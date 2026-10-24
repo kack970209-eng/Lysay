@@ -509,6 +509,44 @@ final class KeyboardModel: ObservableObject {
         controller?.dismissKeyboard()
     }
 
+    // MARK: - 示范画面（App Store 截图用）
+
+    /// 主 App 以 -LysayDemo 启动时，用固定内容展示键盘各个画面
+    func applyDemo(_ mode: String) {
+        needsGlobe = false
+        script = .hant
+        switch mode {
+        case "voice":
+            layout = .voice
+            voiceState = .listening
+            level = 0.7
+            voiceText = "嗯明天下午三點我們我們在公司開會，然後討論一下 Lysay 新版本的上線時間"
+        case "polish":
+            layout = .voice
+            voiceState = .polishing
+            voiceText = "嗯明天下午三點我們我們在公司開會，然後討論一下 Lysay 新版本的上線時間"
+            polishText = "明天下午三點在公司開會，討論 Lysay 新版本的上線時間。"
+        case "zhuyin":
+            layout = .zhuyin
+            zhuyinComposing = true
+            candidates = ["今天天氣很好", "今天", "金天", "今", "斤", "金", "巾", "筋", "津"]
+                .enumerated().map { ZhuyinEngine.Candidate(text: $0.element, consumes: $0.offset == 0 ? 6 : 2) }
+        case "clipboard":
+            layout = .clipboard
+            clipTab = 0
+            var lib = ClipLibrary()
+            let now = Date()
+            for (i, t) in ["台北市信義區松仁路 100 號 12 樓", "會議連結：https://meet.lysay.app/weekly",
+                           "謝謝你的幫忙，我晚點再回覆你！", "Lysay 語音輸入法，說話就能打字",
+                           "訂位資訊：週六晚上 7 點，4 位"].enumerated() {
+                lib.history.append(ClipHistoryItem(text: t, createdAt: now.addingTimeInterval(Double(-i * 600))))
+            }
+            library = lib
+        default:
+            layout = .voice
+        }
+    }
+
     // MARK: - 杂项
 
     func showHint(_ text: String) {

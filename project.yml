@@ -30,6 +30,10 @@ targets:
       - path: Lysay
       - path: Shared
       - path: Engine
+      # 键盘界面也编进主 App，供示范模式（App Store 截图）使用
+      - path: LysayKeyboard
+        includes:
+          - "*.swift"
       - path: Vendor
         excludes:
           - "SHERPA_ONNX_LICENSE"
