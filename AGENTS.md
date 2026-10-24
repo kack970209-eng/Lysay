@@ -55,6 +55,7 @@ Windows 无法编译 iOS。推送到 `main` 后，GitHub Actions（`macos-26`，
 - 1.0.2 真机测试：语音功能正常
 - 1.0.6（Release `build-6`）：注音键盘、新图标、精简首页、粘贴板，使用者测试整体没问题
 - 1.0.7（Release `build-7`）：语音改为说话框 + ✕/✓ + 三色声波 + AI 整理，使用者测试 UI 很好
+- **App Store 1.0（build 102）已于 2026-10-24 提交审查**（含订阅群组 Lysay Pro 与月付/年付订阅），等待结果
 - 1.0.9（Release `build-9`）：同 1.0.8 并带 Google 登录客户端 ID；尚未真机测试
 - 1.0.8（Release `build-8`）：注音进输入框、专有名词、剪贴板记录/文件夹、登录与 Pro、Cloudflare 后台；构建成功，尚未真机测试
 - Google 登录：Google Cloud 项目 Lysay（healthy-mender-469813-s3），iOS 客户端 ID 在 GitHub 变量 `GOOGLE_IOS_CLIENT_ID` 与 `server/wrangler.toml` `GOOGLE_CLIENT_IDS`；同意画面已发布
@@ -76,6 +77,7 @@ Windows 无法编译 iOS。推送到 `main` 后，GitHub Actions（`macos-26`，
 - 后台要能看注册用户、管理账号、看每个用户的套餐（没有显示“无”）、帮用户升级（来源 04）
 - 管理后台密码只存本机 `server/.admin-password.txt`，不提交、不写进交接
 - Google Cloud 里的 LYAct 项目不要动（来源 04）
+- App Store 截图用模拟器示范模式产生（来源 05）；上架描述不可含注音符号
 - 语音面板只放一个麦克风按钮，不放标点（来源 03）
 - 语音不直接上屏：先显示在说话框（✕ 取消 / ✓ 完成），按 ✓ 后 AI 整理再输出（来源 03）
 - 说话时显示三色线条交缠、随声音波动的效果（来源 03）
